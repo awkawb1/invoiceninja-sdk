@@ -2,12 +2,22 @@
 
 An async Rust client for the [Invoice Ninja](https://www.invoiceninja.com/) v5 API.
 
+Requires Rust 1.88 or newer.
+
 ## Development
 
 Enter the dev shell (Rust toolchain via `rust-overlay`):
 
 ```sh
 nix develop
+```
+
+The dev toolchain is pinned in `flake.nix` rather than tracking latest
+stable, so it only moves deliberately. To check the crate still builds on
+the declared minimum of 1.88:
+
+```sh
+nix develop .#msrv --command cargo test
 ```
 
 ## Usage

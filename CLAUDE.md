@@ -14,6 +14,36 @@ This project uses Nix for toolchain management (Rust via `rust-overlay`):
 nix develop
 ```
 
+### Rust version
+
+Two versions are pinned, and **three places must agree** when either moves:
+
+| | Version | Declared in |
+| --- | --- | --- |
+| Dev toolchain | 1.99.1 | `devVersion` in `flake.nix`, `test` job in `ci.yml` |
+| MSRV | 1.88 | `msrvVersion` in `flake.nix`, `rust-version` in `Cargo.toml`, `msrv` job in `ci.yml` |
+
+The MSRV is set by the **dependency graph**, not by this crate's code:
+`reqwest` pulls in `url` → `idna` → `idna_adapter` → `icu_*`, and the `icu`
+crates require 1.88. Recheck the floor after a dependency bump with:
+
+```sh
+cargo metadata --format-version 1 \
+  | jq -r '.packages[] | select(.rust_version) | "\(.rust_version)\t\(.name)"' \
+  | sort -V | tail -5
+```
+
+Verify a candidate MSRV actually builds before declaring it — the number
+above was confirmed by running the suite, not inferred:
+
+```sh
+CARGO_TARGET_DIR=/tmp/msrv-target nix develop .#msrv --command cargo test
+```
+
+Don't reach for a newer std API without checking it against the MSRV; a
+convenience like `Option::is_none_or` (1.82) is rarely worth raising the
+floor for.
+
 ## Common commands
 
 ```sh

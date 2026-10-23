@@ -13,10 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned, and kept in step with `devVersion` in flake.nix, so CI and
+      # the dev shell agree and a new stable release cannot turn a lint
+      # failure into an unrelated red build.
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy
       - run: cargo build --all-targets
       - run: cargo test
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+
+  msrv:
+    name: Build on the declared MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Must match `rust-version` in Cargo.toml and `msrvVersion` in
+      # flake.nix. Builds only — lint and format output varies by release,
+      # and pinning those to the oldest supported toolchain is not useful.
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo test
