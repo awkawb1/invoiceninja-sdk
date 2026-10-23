@@ -4,13 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Mondays 06:00 UTC. A new Rust release lands on its own schedule, so
+    # without this the advisory `stable` job below only runs when someone
+    # happens to push, and breakage can sit unnoticed for weeks.
+    - cron: '0 6 * * 1'
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Nothing it covers can change on a timer: the toolchain is pinned and
+    # the dependencies are locked. The weekly run is for `stable` only.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       # Pinned, and kept in step with `devVersion` in flake.nix, so CI and
@@ -27,6 +38,7 @@ jobs:
   msrv:
     name: Build on the declared MSRV
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       # Must match `rust-version` in Cargo.toml and `msrvVersion` in
@@ -38,11 +50,15 @@ jobs:
   stable:
     name: Latest stable (advisory)
     runs-on: ubuntu-latest
-    # Advisory only. The pinned `test` job is the gate; this one exists so
-    # that a new stable release breaking the build or firing a new clippy
-    # lint is visible before the pin moves, without failing a pull request
-    # that did not cause it. Check it when bumping `devVersion`.
-    continue-on-error: true
+    # Deliberately NOT `continue-on-error`: a failure here should render as
+    # a real red X, not a green check with an annotation nobody reads.
+    #
+    # This job is advisory all the same — it tracks a moving toolchain, so a
+    # new clippy lint can break it through no fault of the change under
+    # test. **Keep it out of the required status checks** in branch
+    # protection; that, rather than a flag in this file, is what stops it
+    # blocking merges. Expect it red sometimes, and fix it when bumping
+    # `devVersion`.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

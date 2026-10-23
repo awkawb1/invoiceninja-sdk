@@ -23,12 +23,22 @@ Two versions are pinned, and **three places must agree** when either moves:
 | Dev toolchain | 1.99.1 | `devVersion` in `flake.nix`, `test` job in `ci.yml` |
 | MSRV | 1.88 | `msrvVersion` in `flake.nix`, `rust-version` in `Cargo.toml`, `msrv` job in `ci.yml` |
 
-CI has a third job, `stable`, which tracks latest stable and is marked
-`continue-on-error`. It is **advisory, not a gate**: it exists so a new
+CI has a third job, `stable`, which tracks latest stable and runs weekly
+(Mondays, via `schedule`) as well as on push and PR. It exists so a new
 Rust release that breaks the build or fires a new clippy lint shows up
-before the pin moves, without failing a pull request that did not cause it.
-Check it when bumping `devVersion` — if it is red, the bump needs work
-first. Nothing needs to stay in sync with it.
+before the pin moves. Check it when bumping `devVersion` — if it is red,
+the bump needs work first. Nothing needs to stay in sync with it.
+
+**It is advisory, but it reports red.** There is deliberately no
+`continue-on-error`, because a green check with an annotation is a signal
+nobody reads. That means **it must stay out of the required status checks**
+in branch protection — that repo setting, not anything in `ci.yml`, is what
+keeps it from blocking merges. Expect it red occasionally through no fault
+of the change under test; that is the tradeoff for it being visible.
+
+The pinned `test` and `msrv` jobs skip scheduled runs (`if:
+github.event_name != 'schedule'`), since a pinned toolchain against a
+locked dependency graph cannot change on a timer.
 
 The MSRV is set by the **dependency graph**, not by this crate's code:
 `reqwest` pulls in `url` → `idna` → `idna_adapter` → `icu_*`, and the `icu`
