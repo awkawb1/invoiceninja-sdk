@@ -86,9 +86,28 @@ Invoice Ninja account to contribute.
   `form_params`, keeping the whole validation `errors` map, exposing bulk
   `download` only on PDF-rendering entities — are deliberate.
 - **No sync/blocking API.** Async only.
-- **No ORM, session, or caching layer.** The crate wraps endpoints. It does
-  not model relationships between entities or cache responses, beyond
-  advising that `/statics` is worth caching.
+- **No identity map, lazy relationship loading, or transparent entity
+  caching.** Three separate refusals with one theme — the client stays
+  stateless and the models stay plain data:
+  - *Lazy loading.* An `Invoice` that could fetch its own client would have
+    to hold a client handle, so it would stop being a `Deserialize` struct.
+    That breaks `Default`-constructibility, which every `create_*` relies
+    on, and it breaks the `extra` round-trip model.
+  - *Dirty tracking.* The same problem from the other side: you cannot
+    meaningfully diff a flattened `Map` of fields the crate does not model,
+    and carrying those fields is the whole point of `extra` (goal 1).
+  - *Entity caching.* The shared response path in `BaseController` sends no
+    `ETag`, `If-None-Match`, or `Cache-Control`, so a cached entity cannot
+    be cheaply revalidated — every hit is a gamble. Serving a stale invoice
+    balance is a correctness hazard, not a missed optimisation.
+
+  An identity map would also mean shared mutable state; `InvoiceNinjaClient`
+  is currently cheap to `Clone` across tasks, and a lock would change that.
+  Server-side eager loading via `include` already covers the common case in
+  one round trip.
+
+  Note this does **not** rule out typed `include` helpers or an opt-in cache
+  for the static lookup tables — see the open questions.
 - **No modelling of every field.** See goal 1; breadth of endpoints is a
   goal, breadth of typed fields is not.
 - **No retrying of non-idempotent requests.** See goal 4.
@@ -158,4 +177,21 @@ These are genuinely undecided. Deciding one is a change to this file.
 - **`Error::PaginationLimit` has no test**, because reaching it needs
   10,001 mock round trips. Making `MAX_PAGES` injectable purely for a test
   may be worse than the gap.
+- **Typed `include` helpers.** Eager loading is a stringly parameter today
+  (`.include("client,payments")`), so a typo is a silent no-op rather than a
+  compile error. An enum-backed builder per resource would fix that, and it
+  conflicts with nothing above — it is just not done. The cost is knowing
+  which relationships each resource actually accepts, which the spec does
+  not reliably document.
+- **An opt-in cache for `/statics`.** The payload is large and near-constant
+  and the docs already say to cache it, but the crate offers no hook. A
+  small trait the caller implements would stay clear of the entity-caching
+  hazard above, since the lookup tables are not money. Whether that beats
+  "cache it yourself" is genuinely unclear.
+
+  Related, and deliberately parked: the API accepts an `updated_at` query
+  parameter meaning "everything changed since T", which is the shape a local
+  mirror would need. That is a sync engine rather than a cache, and a
+  different product from this crate — recorded so the option is not
+  forgotten rather than because it is planned.
 - **When to go 1.0**, and what the API needs to settle first.
