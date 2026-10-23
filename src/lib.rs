@@ -18,5 +18,5 @@ mod client;
 mod error;
 pub mod models;
 
-pub use client::InvoiceNinjaClient;
+pub use client::{InvoiceNinjaClient, HOSTED_BASE_URL};
 pub use error::{ApiErrorBody, Error, Result};

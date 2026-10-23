@@ -5,31 +5,31 @@ use serde_json::{Map, Value};
 pub struct Vendor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub id_number: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub vat_number: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub address1: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub address2: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub city: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub state: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub postal_code: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub country_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub phone: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub website: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub private_notes: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub is_deleted: bool,
     #[serde(default)]
     pub archived_at: Option<i64>,
@@ -37,7 +37,7 @@ pub struct Vendor {
     pub created_at: Option<i64>,
     #[serde(default)]
     pub updated_at: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub contacts: Vec<VendorContact>,
 
     /// Any fields returned by the API that aren't modeled above are preserved here,
@@ -50,15 +50,15 @@ pub struct Vendor {
 pub struct VendorContact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub first_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub last_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub email: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub phone: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub is_primary: bool,
 
     #[serde(flatten)]

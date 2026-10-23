@@ -11,6 +11,14 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "nat
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# Already in the tree via reqwest's `url`; used to escape ids before they are
+# interpolated into request paths.
+percent-encoding = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# Used to assert that ListParams urlencodes the way reqwest will send it.
+serde_urlencoded = "0.7"
+# Loopback HTTP server for exercising the request plumbing (pagination, path
+# escaping, headers, error mapping) without reaching the network.
+wiremock = "0.6"

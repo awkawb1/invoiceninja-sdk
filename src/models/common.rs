@@ -1,7 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListResponse<T> {
+    /// Defaulted because not every list-shaped response carries a `data` key:
+    /// a bulk action whose `ids` match nothing returns HTTP 200 with just
+    /// `{"message": "No Invoices Found"}`, which should read as "no results"
+    /// rather than a decode failure.
+    #[serde(default = "Vec::new")]
     pub data: Vec<T>,
     #[serde(default)]
     pub meta: Option<Meta>,
@@ -44,6 +49,19 @@ pub struct ListParams {
     /// Set to 1 to include archived/deleted records.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+
+    /// Extra query parameters appended verbatim.
+    ///
+    /// The typed fields above are only the parameters common to every list
+    /// endpoint; individual resources accept many more (`client_id`,
+    /// `vendor_id`, `number`, `created_at`, `is_deleted`, per-resource
+    /// filters). Use [`param`](Self::param) to set those.
+    ///
+    /// Skipped by serde and applied as a separate query pass, because
+    /// `serde_urlencoded` — which backs `reqwest`'s query serialization —
+    /// does not handle `#[serde(flatten)]`ed maps.
+    #[serde(skip)]
+    pub custom: Vec<(String, String)>,
 }
 
 impl ListParams {
@@ -79,5 +97,58 @@ impl ListParams {
     pub fn status(mut self, status: impl Into<String>) -> Self {
         self.status = Some(status.into());
         self
+    }
+
+    /// Adds an arbitrary query parameter, for filters the typed setters do
+    /// not cover.
+    ///
+    /// ```
+    /// use invoiceninjars::models::ListParams;
+    ///
+    /// let params = ListParams::new()
+    ///     .per_page(100)
+    ///     .param("client_id", "abc123")
+    ///     .param("is_deleted", "false");
+    /// ```
+    ///
+    /// Can be called more than once with the same key; both pairs are sent.
+    pub fn param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.custom.push((key.into(), value.into()));
+        self
+    }
+}
+
+/// Deserializes `null` as `T::default()` instead of failing.
+///
+/// `#[serde(default)]` alone only covers a *missing* key — a key that is
+/// present with an explicit `null` still errors for non-`Option` types.
+/// Invoice Ninja returns `null` for plenty of nominally-string fields, so the
+/// models pair `default` with this to tolerate both shapes.
+pub(crate) fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Body for a bulk action (`POST /{resource}/bulk`).
+///
+/// The action set varies by resource; `archive`, `restore`, and `delete` work
+/// everywhere, and are what the generated `bulk_*` methods are typed for.
+/// See [`crate::InvoiceNinjaClient::bulk_invoices`] for the actions whose
+/// responses are *not* a list of entities.
+#[derive(Debug, Clone, Serialize)]
+pub struct BulkRequest {
+    pub action: String,
+    pub ids: Vec<String>,
+}
+
+impl BulkRequest {
+    pub fn new(action: impl Into<String>, ids: &[impl AsRef<str>]) -> Self {
+        Self {
+            action: action.into(),
+            ids: ids.iter().map(|id| id.as_ref().to_string()).collect(),
+        }
     }
 }

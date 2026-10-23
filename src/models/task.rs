@@ -5,24 +5,24 @@ use serde_json::{Map, Value};
 pub struct Task {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub client_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub invoice_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub project_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub description: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub rate: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub status_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub is_running: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub is_deleted: bool,
     /// JSON-encoded array of `[start_timestamp, end_timestamp]` pairs, as returned by the API.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub time_log: String,
     #[serde(default)]
     pub archived_at: Option<i64>,
