@@ -62,6 +62,9 @@ let client = InvoiceNinjaClient::hosted(token)?
     .with_retry_policy(RetryPolicy::new(5));
 ```
 
+Note that the timeout applies to each attempt, not to the call as a whole;
+`RetryPolicy::max_elapsed` (120 seconds by default) is what bounds the total.
+
 Retrying is deliberately conservative about `POST`. A `POST` that fails with
 a 5xx or times out is **not** replayed, because the server may have applied
 it before the response was lost and a repeat would create a second invoice

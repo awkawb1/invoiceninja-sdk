@@ -23,8 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PhpVersion`.
 - `statics_as`, `search_as`, and `health_check_as` as generic escape hatches
   for callers who need to pin a shape the typed models leave in `extra`.
-- `tests/client_requests.rs`: 43 tests covering the request plumbing against
+- `tests/client_requests.rs`: 50 tests covering the request plumbing against
   a loopback `wiremock` server. No network or credentials required.
+- `RetryPolicy::max_elapsed`, a ceiling on the time one call may spend across
+  all attempts, defaulting to 120 seconds. The request timeout is per
+  attempt, so without this the default policy could spend four minutes on a
+  call that times out repeatedly.
 
 ### Changed
 
@@ -39,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing scheme used to produce a 404 on every call instead of one error.
 - `list_all_*` terminates on `meta.pagination.total_pages` when the server
   sends it, falling back to the short-page heuristic only when it does not.
+- `Error` is now `#[non_exhaustive]`, so later variants are not a breaking
+  change. Matches on it need a catch-all arm.
+- `Error::Json` is now a struct variant carrying an `excerpt` of the body
+  that failed to decode. The serde message alone ("expected value at line 1
+  column 1") does not reveal that the response was, say, an HTML error page
+  from a proxy or a login redirect from a wrong base URL.
+- API errors with an empty or message-less body now report the status reason
+  ("Not Found") instead of rendering blank.
 
 ### Fixed
 
@@ -67,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   applied it before the response was lost and a replay would duplicate an
   invoice, payment, or email. A 429 is the exception — the server states it
   refused the request, so no work was done.
+- The API token and password are held as headers marked sensitive, so
+  neither appears in `Debug` output. `reqwest`'s own `Client` debug prints
+  its default headers, so this is the only thing keeping the token out of
+  logs; there is now a regression test pinning it.
 
 ## [0.1.0] - 2026-10-23
 

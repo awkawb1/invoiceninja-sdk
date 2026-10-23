@@ -60,6 +60,37 @@ fn seg(value: &str) -> Result<impl std::fmt::Display + '_> {
     Ok(utf8_percent_encode(value, PATH_SEGMENT))
 }
 
+/// Renders the start of a response body for an error message.
+///
+/// Collapsed to one line and truncated, so a stray HTML error page or a
+/// multi-megabyte payload cannot turn an error into a wall of text.
+fn excerpt(bytes: &[u8]) -> String {
+    /// Enough to recognise an HTML page, a proxy error, or a short JSON
+    /// message without quoting a whole document.
+    const MAX: usize = 200;
+
+    let head = &bytes[..bytes.len().min(MAX)];
+    // Lossy because the body may be truncated mid-character, or not be text
+    // at all — a PDF arriving where JSON was expected is exactly the kind of
+    // mix-up this is here to explain.
+    let text = String::from_utf8_lossy(head);
+    let mut out: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let trimmed = out.trim();
+    if trimmed.len() != out.len() {
+        out = trimmed.to_string();
+    }
+    if out.is_empty() {
+        return "<empty body>".to_string();
+    }
+    if bytes.len() > MAX {
+        out.push('…');
+    }
+    out
+}
+
 /// An async client for the Invoice Ninja v5 API.
 ///
 /// `base_url` should point at the API root — note the `/api/v1` suffix, e.g.
@@ -199,14 +230,13 @@ impl InvoiceNinjaClient {
     async fn execute(&self, builder: reqwest::RequestBuilder) -> Result<reqwest::Response> {
         let mut request = builder.build()?;
         let method = request.method().clone();
+        let started = std::time::Instant::now();
         let mut attempt = 0u32;
 
         loop {
-            let replay = if attempt < self.retry.max_retries {
-                request.try_clone()
-            } else {
-                None
-            };
+            let may_retry =
+                attempt < self.retry.max_retries && self.retry.within_budget(started.elapsed());
+            let replay = if may_retry { request.try_clone() } else { None };
 
             let delay = match self.http.execute(request).await {
                 Ok(response) => {
@@ -220,9 +250,15 @@ impl InvoiceNinjaClient {
                     // as the error instead of slept through.
                     let delay = retry::retry_after(response.headers())
                         .unwrap_or_else(|| self.retry.backoff(attempt));
-                    if delay > self.retry.max_delay {
+                    if delay > self.retry.max_delay
+                        || !self.retry.within_budget(started.elapsed() + delay)
+                    {
                         return Ok(response);
                     }
+                    // Drain the body before retrying so the connection can
+                    // return to the pool; dropping it unread makes the next
+                    // attempt open a fresh one.
+                    let _ = response.bytes().await;
                     request = next;
                     delay
                 }
@@ -232,8 +268,12 @@ impl InvoiceNinjaClient {
                     else {
                         return Err(e.into());
                     };
+                    let delay = self.retry.backoff(attempt);
+                    if !self.retry.within_budget(started.elapsed() + delay) {
+                        return Err(e.into());
+                    }
                     request = next;
-                    self.retry.backoff(attempt)
+                    delay
                 }
             };
 
@@ -260,24 +300,47 @@ impl InvoiceNinjaClient {
         let bytes = response.bytes().await?;
 
         if status.is_success() {
-            Ok(serde_json::from_slice(&bytes)?)
+            serde_json::from_slice(&bytes).map_err(|source| Error::Json {
+                source,
+                excerpt: excerpt(&bytes),
+            })
         } else {
             Err(Self::api_error(status, &bytes))
         }
     }
 
     fn api_error(status: StatusCode, bytes: &[u8]) -> Error {
+        let fallback = |message: String| Error::Api {
+            status,
+            // An empty body would otherwise render as "api returned 404: ",
+            // which says less than the status line already did.
+            message: if message.trim().is_empty() {
+                status
+                    .canonical_reason()
+                    .unwrap_or("no message in response")
+                    .to_string()
+            } else {
+                message
+            },
+            errors: Default::default(),
+        };
+
         match serde_json::from_slice::<ApiErrorBody>(bytes) {
+            // A body that parses but carries neither a message nor field
+            // errors is no more useful than an unparseable one.
+            Ok(body) if body.message.trim().is_empty() && body.errors.is_empty() => {
+                fallback(String::new())
+            }
             Ok(body) => Error::Api {
                 status,
                 message: body.message,
                 errors: body.errors,
             },
-            Err(_) => Error::Api {
-                status,
-                message: String::from_utf8_lossy(bytes).into_owned(),
-                errors: Default::default(),
-            },
+            // Checked on the bytes rather than the excerpt, which
+            // substitutes a placeholder for an empty body and would read as
+            // a message.
+            Err(_) if bytes.iter().all(u8::is_ascii_whitespace) => fallback(String::new()),
+            Err(_) => fallback(excerpt(bytes)),
         }
     }
 

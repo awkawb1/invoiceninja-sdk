@@ -1,9 +1,10 @@
 use invoiceninjars::models::{
     BankIntegration, BankTransaction, BankTransactionRule, BulkRequest, Client, ClientGatewayToken,
     Company, CompanyGateway, CompanyToken, Credit, Design, Document, Expense, ExpenseCategory,
-    GroupSetting, Invoice, ListParams, ListResponse, Location, PaymentTerm, Project, PurchaseOrder,
-    Quote, RecurringExpense, RecurringInvoice, RecurringQuote, Subscription, SystemLog, Tag, Task,
-    TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
+    GroupSetting, HealthCheck, Invoice, ListParams, ListResponse, Location, PaymentTerm, Project,
+    PurchaseOrder, Quote, RecurringExpense, RecurringInvoice, RecurringQuote, SearchResults,
+    Statics, Subscription, SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate, User, Vendor,
+    Webhook,
 };
 use serde_json::json;
 
@@ -693,4 +694,71 @@ fn design_body_round_trips_through_extra() {
     let design: Design = serde_json::from_value(payload).unwrap();
     let round_tripped = serde_json::to_value(&design).unwrap();
     assert_eq!(round_tripped["design"]["header"], "<h1>");
+}
+
+#[test]
+fn statics_round_trip_preserves_unmodeled_tables_and_fields() {
+    let payload = json!({
+        "currencies": [{ "id": 1, "name": "US Dollar", "code": "USD", "precision": 2 }],
+        "countries": [{ "id": 840, "name": "United States", "iso_3166_3": "USA" }],
+        "gateways": [{ "id": 1, "name": "Stripe" }],
+        "some_future_table": [{ "x": 1 }]
+    });
+
+    let statics: Statics = serde_json::from_value(payload).unwrap();
+    let back = serde_json::to_value(&statics).unwrap();
+
+    assert_eq!(back["countries"][0]["iso_3166_3"], "USA");
+    assert_eq!(back["some_future_table"][0]["x"], 1);
+    assert_eq!(back["gateways"][0]["name"], "Stripe");
+    assert_eq!(
+        back["currencies"][0]["id"], "1",
+        "ids are normalised to strings on the way back out"
+    );
+}
+
+#[test]
+fn search_results_round_trip_preserves_unknown_buckets() {
+    let payload = json!({
+        "clients": [{ "name": "Acme", "type": "/client", "id": "a1", "path": "/clients/a1" }],
+        "future_bucket": [{ "name": "x" }]
+    });
+
+    let results: SearchResults = serde_json::from_value(payload).unwrap();
+    assert_eq!(results.clients[0].r#type, "/client");
+
+    let back = serde_json::to_value(&results).unwrap();
+    assert_eq!(back["future_bucket"][0]["name"], "x");
+    assert_eq!(back["clients"][0]["type"], "/client");
+}
+
+#[test]
+fn health_check_round_trip_preserves_unknown_fields() {
+    let payload = json!({
+        "system_health": false,
+        "api_version": "5.8.56",
+        "queue_data": { "pending": 3 },
+        "brand_new_probe": true
+    });
+
+    let health: HealthCheck = serde_json::from_value(payload).unwrap();
+    assert_eq!(health.system_health, Some(false));
+
+    let back = serde_json::to_value(&health).unwrap();
+    assert_eq!(back["brand_new_probe"], true);
+    assert_eq!(back["queue_data"]["pending"], 3);
+}
+
+#[test]
+fn statics_ids_accept_both_strings_and_numbers() {
+    let payload = json!({
+        "payment_types": [{ "id": "1", "name": "Bank Transfer" }],
+        "industries": [{ "id": 3, "name": "Advertising" }],
+        "sizes": [{ "id": null, "name": "Unknown" }]
+    });
+
+    let statics: Statics = serde_json::from_value(payload).unwrap();
+    assert_eq!(statics.payment_types[0].id, "1");
+    assert_eq!(statics.industries[0].id, "3");
+    assert_eq!(statics.sizes[0].id, "", "a null id decodes as empty");
 }

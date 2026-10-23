@@ -22,6 +22,14 @@ pub struct RetryPolicy {
     pub base_delay: Duration,
     /// Ceiling on any single wait, including one asked for by `Retry-After`.
     pub max_delay: Duration,
+    /// Ceiling on the time spent across *all* attempts for one call.
+    ///
+    /// This exists because the request timeout is per attempt, not per call:
+    /// with the defaults, four attempts that each time out would otherwise
+    /// take four minutes. Once this much has elapsed no further retry
+    /// starts, and the last error is returned. `None` bounds a call only by
+    /// `max_retries`.
+    pub max_elapsed: Option<Duration>,
 }
 
 impl Default for RetryPolicy {
@@ -30,6 +38,7 @@ impl Default for RetryPolicy {
             max_retries: 3,
             base_delay: Duration::from_millis(500),
             max_delay: Duration::from_secs(10),
+            max_elapsed: Some(Duration::from_secs(120)),
         }
     }
 }
@@ -58,6 +67,24 @@ impl RetryPolicy {
         self
     }
 
+    /// Sets the ceiling on total time across all attempts; `None` removes
+    /// it.
+    pub fn max_elapsed(mut self, max_elapsed: Option<Duration>) -> Self {
+        self.max_elapsed = max_elapsed;
+        self
+    }
+
+    /// Whether another attempt may start after `elapsed` spent so far.
+    ///
+    /// Spelled as a match rather than `is_none_or`, which would raise the
+    /// minimum toolchain to 1.82 for no benefit.
+    pub(crate) fn within_budget(&self, elapsed: Duration) -> bool {
+        match self.max_elapsed {
+            Some(budget) => elapsed < budget,
+            None => true,
+        }
+    }
+
     /// Full-jitter exponential backoff: a uniform pick from
     /// `[0, min(max_delay, base_delay * 2^attempt)]`.
     ///
@@ -66,10 +93,13 @@ impl RetryPolicy {
     pub(crate) fn backoff(&self, attempt: u32) -> Duration {
         let exponential = self
             .base_delay
+            // `checked_shl` yields None past 31 places, and the multiply can
+            // overflow well before that; either way the cap applies.
             .checked_mul(1u32.checked_shl(attempt).unwrap_or(u32::MAX))
             .unwrap_or(self.max_delay)
             .min(self.max_delay);
-        Duration::from_millis(pseudo_random_millis(exponential.as_millis() as u64))
+        let millis = u64::try_from(exponential.as_millis()).unwrap_or(u64::MAX);
+        Duration::from_millis(pseudo_random_millis(millis))
     }
 }
 
@@ -96,7 +126,9 @@ fn pseudo_random_millis(upper: u64) -> u64 {
     x ^= x >> 27;
     x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
     x ^= x >> 31;
-    x % (upper + 1)
+    // Saturating, so an enormous `max_delay` cannot overflow the span and
+    // panic in a debug build.
+    x % upper.saturating_add(1)
 }
 
 /// Whether replaying the request can be assumed not to double an effect.

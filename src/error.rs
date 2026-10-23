@@ -10,13 +10,26 @@ pub struct ApiErrorBody {
     pub errors: HashMap<String, Vec<String>>,
 }
 
+/// Marked `#[non_exhaustive]`: matching on it must include a catch-all arm,
+/// so that new variants can be added without breaking callers.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("http transport error: {0}")]
     Http(#[from] reqwest::Error),
 
-    #[error("failed to decode JSON response: {0}")]
-    Json(#[from] serde_json::Error),
+    /// The response was not the JSON this endpoint is documented to return.
+    ///
+    /// Carries an excerpt of what actually arrived. Without it the inner
+    /// serde message ("expected value at line 1 column 1") gives no clue
+    /// that the body was, say, an HTML error page from a reverse proxy or a
+    /// login redirect from a misconfigured base URL.
+    #[error("failed to decode JSON response: {source}; body began: {excerpt}")]
+    Json {
+        #[source]
+        source: serde_json::Error,
+        excerpt: String,
+    },
 
     #[error("api returned {status}: {message}")]
     Api {

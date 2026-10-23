@@ -988,3 +988,191 @@ async fn generic_escape_hatches_still_work() {
         .expect("statics_as should bypass the typed model");
     assert!(raw["sizes"].is_array());
 }
+
+// --- secret handling ----------------------------------------------------
+
+/// `reqwest`'s `Client` Debug prints its default headers, so the only thing
+/// keeping the API token out of every `{:?}` log is the sensitive flag set
+/// when the header is built. Lock that in.
+#[test]
+fn debug_output_never_contains_the_token_or_password() {
+    let client = InvoiceNinjaClient::new("https://example.com/api/v1", "SUPER_SECRET_TOKEN")
+        .unwrap()
+        .with_api_password("SUPER_SECRET_PASSWORD")
+        .unwrap();
+
+    let rendered = format!("{client:?}");
+    assert!(
+        !rendered.contains("SUPER_SECRET_TOKEN"),
+        "api token leaked into Debug output: {rendered}"
+    );
+    assert!(
+        !rendered.contains("SUPER_SECRET_PASSWORD"),
+        "api password leaked into Debug output: {rendered}"
+    );
+    assert!(
+        rendered.contains("Sensitive"),
+        "expected the headers to render as redacted, got: {rendered}"
+    );
+}
+
+// --- error quality ------------------------------------------------------
+
+/// A misconfigured base URL or an intercepting proxy returns HTML with a 200.
+/// The bare serde message ("expected value at line 1 column 1") does not hint
+/// at that, so the body excerpt is what makes it diagnosable.
+#[tokio::test]
+async fn decode_failures_quote_the_body_that_arrived() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("<html><body>Login required</body></html>"),
+        )
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("HTML is not a decodable list response");
+
+    let rendered = err.to_string();
+    assert!(
+        matches!(err, Error::Json { .. }),
+        "expected a decode error, got {err:?}"
+    );
+    assert!(
+        rendered.contains("Login required"),
+        "the excerpt should name what actually arrived, got: {rendered}"
+    );
+}
+
+#[tokio::test]
+async fn decode_excerpts_are_truncated_and_single_line() {
+    let server = MockServer::start().await;
+    let huge = format!("<html>\n{}\n</html>", "x".repeat(50_000));
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(huge))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("should fail to decode");
+
+    let rendered = err.to_string();
+    assert!(
+        rendered.len() < 400,
+        "a huge body must not become a huge error, got {} chars",
+        rendered.len()
+    );
+    assert!(
+        !rendered.contains('\n'),
+        "the excerpt should be collapsed to one line"
+    );
+    assert!(rendered.contains('…'), "truncation should be marked");
+}
+
+#[tokio::test]
+async fn empty_error_bodies_fall_back_to_the_status_reason() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/clients/abc"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .with_retry_policy(RetryPolicy::none())
+        .delete_client("abc")
+        .await
+        .expect_err("404 is an error");
+
+    match err {
+        Error::Api { message, .. } => assert_eq!(
+            message, "Not Found",
+            "an empty body should borrow the status reason rather than render blank"
+        ),
+        other => panic!("expected Error::Api, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_json_error_body_with_no_message_still_says_something() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .with_retry_policy(RetryPolicy::none())
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("403 is an error");
+    assert!(err.to_string().contains("Forbidden"), "got {err}");
+}
+
+// --- retry budget -------------------------------------------------------
+
+/// The request timeout is per attempt, so without a total budget four
+/// attempts at 60s each would take four minutes. The budget caps the call.
+#[tokio::test]
+async fn the_total_budget_stops_retrying_even_with_retries_left() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(503).set_delay(Duration::from_millis(80)))
+        .mount(&server)
+        .await;
+
+    let policy = RetryPolicy::new(50)
+        .base_delay(Duration::from_millis(1))
+        .max_delay(Duration::from_millis(5))
+        .max_elapsed(Some(Duration::from_millis(250)));
+
+    let started = std::time::Instant::now();
+    let err = client(&server)
+        .with_retry_policy(policy)
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("should give up once the budget is spent");
+
+    assert!(matches!(err, Error::Api { status, .. } if status == 503));
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "50 retries were allowed but the budget should have ended it, took {:?}",
+        started.elapsed()
+    );
+    let attempts = server.received_requests().await.unwrap().len();
+    assert!(
+        (2..=6).contains(&attempts),
+        "expected the budget to allow a few attempts, got {attempts}"
+    );
+}
+
+#[tokio::test]
+async fn no_budget_means_only_max_retries_bounds_the_call() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+
+    let policy = RetryPolicy::new(4)
+        .base_delay(Duration::from_millis(1))
+        .max_delay(Duration::from_millis(2))
+        .max_elapsed(None);
+
+    let _ = client(&server)
+        .with_retry_policy(policy)
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("still fails");
+    assert_eq!(server.received_requests().await.unwrap().len(), 5);
+}

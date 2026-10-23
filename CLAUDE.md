@@ -77,6 +77,14 @@ changes, doc tweaks) does not need an entry.
   single place retrying happens. **A new helper must use both** — calling
   `self.http` directly would skip the header, the timeout, and the retry
   policy. Only `req` and `execute` should touch `self.http`.
+- **The request timeout is per attempt, not per call.** `RetryPolicy::
+  max_elapsed` is what bounds a call overall; without it, four attempts at
+  the 60s default would take four minutes. Keep both in mind when changing
+  either.
+- **Both credentials are stored as `HeaderValue`s with
+  `set_sensitive(true)`.** `reqwest`'s `Client` Debug prints its default
+  headers, so that flag is the only thing keeping the API token out of any
+  `{:?}` log. Don't build either header without it; a test pins this.
 - `src/retry.rs` — `RetryPolicy` plus the rules for what may be replayed.
   **The method matters, not just the status.** A 429 means the server
   refused the request without processing it, so any method is safe to
