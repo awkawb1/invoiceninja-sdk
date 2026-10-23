@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A declared minimum supported Rust version of **1.88**, verified by running
   the test suite against it. The floor comes from the dependency graph
   (`reqwest` → `url` → `idna` → `icu_*`), not from this crate's own code.
-  CI builds on both the MSRV and the pinned dev toolchain.
+  CI builds on both the MSRV and the pinned dev toolchain, plus an advisory
+  job on latest stable that reports breakage from a new Rust release
+  without gating pull requests.
 - Wrappers for every one of the API's 34 `Route::resource` groups, plus
   `users` — 265 methods. See `COVERAGE.md` for the per-endpoint inventory.
 - `COVERAGE.md`, a detailed record of what is wrapped, what is not, and why,

@@ -23,6 +23,13 @@ Two versions are pinned, and **three places must agree** when either moves:
 | Dev toolchain | 1.99.1 | `devVersion` in `flake.nix`, `test` job in `ci.yml` |
 | MSRV | 1.88 | `msrvVersion` in `flake.nix`, `rust-version` in `Cargo.toml`, `msrv` job in `ci.yml` |
 
+CI has a third job, `stable`, which tracks latest stable and is marked
+`continue-on-error`. It is **advisory, not a gate**: it exists so a new
+Rust release that breaks the build or fires a new clippy lint shows up
+before the pin moves, without failing a pull request that did not cause it.
+Check it when bumping `devVersion` — if it is red, the bump needs work
+first. Nothing needs to stay in sync with it.
+
 The MSRV is set by the **dependency graph**, not by this crate's code:
 `reqwest` pulls in `url` → `idna` → `idna_adapter` → `icu_*`, and the `icu`
 crates require 1.88. Recheck the floor after a dependency bump with:

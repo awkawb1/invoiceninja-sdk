@@ -34,3 +34,19 @@ jobs:
       # and pinning those to the oldest supported toolchain is not useful.
       - uses: dtolnay/rust-toolchain@1.88.0
       - run: cargo test
+
+  stable:
+    name: Latest stable (advisory)
+    runs-on: ubuntu-latest
+    # Advisory only. The pinned `test` job is the gate; this one exists so
+    # that a new stable release breaking the build or firing a new clippy
+    # lint is visible before the pin moves, without failing a pull request
+    # that did not cause it. Check it when bumping `devVersion`.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo test
+      - run: cargo clippy --all-targets -- -D warnings
