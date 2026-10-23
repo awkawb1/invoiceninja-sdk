@@ -4,6 +4,10 @@ An async Rust client for the [Invoice Ninja](https://www.invoiceninja.com/) v5 A
 
 Requires Rust 1.88 or newer.
 
+> **Pre-1.0: no API stability promise.** Pin an exact version and expect
+> breaking changes in minor releases; `CHANGELOG.md` records them.
+> [`GOALS.md`](GOALS.md) covers what the crate is for and what it is not.
+
 ## Development
 
 Enter the dev shell (Rust toolchain via `rust-overlay`):

@@ -2,6 +2,10 @@
 
 What this crate wraps of the Invoice Ninja v5 API, and what it doesn't.
 
+Full coverage is a stated goal, so the gaps below are a to-do list rather
+than a permanent boundary — [`GOALS.md`](GOALS.md) puts them in rough
+priority order.
+
 Checked against `routes/api.php` on the `v5-stable` branch of the
 [invoiceninja repo](https://github.com/invoiceninja/invoiceninja), which
 declares 34 `Route::resource` groups and 274 explicit route declarations

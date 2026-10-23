@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An async Rust client for the [Invoice Ninja](https://www.invoiceninja.com/) v5 API.
 
+**`GOALS.md` states what the project is for, what it deliberately is not,
+and what is still undecided.** Read it before making a design call — several
+choices in here look like oversights until you know the reasoning (the
+curated model subset, the untyped `chart`, not retrying `POST`, the
+divergences from the official PHP SDK). If a change would contradict a
+stated goal or settle an open question, update `GOALS.md` in the same
+change.
+
 ## Development environment
 
 This project uses Nix for toolchain management (Rust via `rust-overlay`):
