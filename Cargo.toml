@@ -1,0 +1,16 @@
+[package]
+name = "invoiceninjars"
+version = "0.1.0"
+edition = "2021"
+description = "An async Rust client for the Invoice Ninja v5 API"
+license = "MIT"
+repository = "https://github.com/bryant/invoiceninjars"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
