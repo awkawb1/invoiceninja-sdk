@@ -544,3 +544,447 @@ async fn ping_accepts_an_empty_success_body() {
 
     client(&server).ping().await.expect("ping should succeed");
 }
+
+// --- retry and backoff --------------------------------------------------
+
+use invoiceninjars::RetryPolicy;
+
+/// Fast policy so the tests do not actually sleep for seconds.
+fn quick_retry() -> RetryPolicy {
+    RetryPolicy::new(3)
+        .base_delay(Duration::from_millis(1))
+        .max_delay(Duration::from_millis(20))
+}
+
+#[tokio::test]
+async fn transient_5xx_on_a_get_is_retried_until_it_succeeds() {
+    let server = MockServer::start().await;
+    // First two attempts fail, third succeeds.
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page(1, 1, 1)))
+        .mount(&server)
+        .await;
+
+    let got = client(&server)
+        .with_retry_policy(quick_retry())
+        .list_clients(&ListParams::new())
+        .await
+        .expect("a GET should ride out transient 5xx");
+    assert_eq!(got.len(), 1);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+}
+
+/// The safety property that matters most here: a POST may already have
+/// created a record even though the response failed, so replaying it could
+/// double-charge. It must surface instead.
+#[tokio::test]
+async fn post_is_not_replayed_on_5xx() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({ "message": "boom" })))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .with_retry_policy(quick_retry())
+        .create_client(&Default::default())
+        .await
+        .expect_err("a failed create must not be retried");
+    assert!(matches!(err, Error::Api { status, .. } if status == 500));
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        1,
+        "exactly one create attempt may reach the server"
+    );
+}
+
+/// 429 is the exception: the server states it refused the request, so no
+/// work was done and even a POST is safe to repeat.
+#[tokio::test]
+async fn post_is_retried_on_429_because_nothing_was_processed() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(429))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "new" } })))
+        .mount(&server)
+        .await;
+
+    let created = client(&server)
+        .with_retry_policy(quick_retry())
+        .create_client(&Default::default())
+        .await
+        .expect("a throttled create should be retried");
+    assert_eq!(created.id.as_deref(), Some("new"));
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn client_errors_are_never_retried() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients/abc"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .with_retry_policy(quick_retry())
+        .get_client("abc")
+        .await
+        .expect_err("404 is not transient");
+    assert!(matches!(err, Error::Api { status, .. } if status == 404));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn retries_are_bounded_by_the_policy() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(502))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .with_retry_policy(RetryPolicy::new(2).base_delay(Duration::from_millis(1)))
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("should give up and surface the last error");
+    assert!(matches!(err, Error::Api { status, .. } if status == 502));
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        3,
+        "one initial attempt plus two retries"
+    );
+}
+
+#[tokio::test]
+async fn retry_policy_none_attempts_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+
+    let _ = client(&server)
+        .with_retry_policy(RetryPolicy::none())
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("retrying is disabled");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn retry_after_longer_than_max_delay_is_surfaced_rather_than_slept_through() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "3600"))
+        .mount(&server)
+        .await;
+
+    let err = tokio::time::timeout(
+        Duration::from_secs(5),
+        client(&server)
+            .with_retry_policy(quick_retry())
+            .list_clients(&ListParams::new()),
+    )
+    .await
+    .expect("must not sleep for the full hour the server asked for")
+    .expect_err("the throttle should be reported");
+    assert!(matches!(err, Error::Api { status, .. } if status == 429));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_short_retry_after_is_honoured() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "0"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/clients"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page(0, 1, 1)))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .with_retry_policy(quick_retry())
+        .list_clients(&ListParams::new())
+        .await
+        .expect("should wait the requested time and retry");
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn retried_requests_keep_their_body_and_headers() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/clients/abc"))
+        .and(header("X-Api-Token", "test-token"))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/clients/abc"))
+        .and(header("X-Api-Token", "test-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "abc" } })))
+        .mount(&server)
+        .await;
+
+    let body = invoiceninjars::models::Client {
+        name: "Acme".into(),
+        ..Default::default()
+    };
+    client(&server)
+        .with_retry_policy(quick_retry())
+        .update_client("abc", &body)
+        .await
+        .expect("the replayed PUT should carry the same payload");
+
+    let sent = server.received_requests().await.unwrap();
+    assert_eq!(sent.len(), 2);
+    for request in &sent {
+        let json: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(json["name"], "Acme", "body must survive the replay");
+    }
+}
+
+// --- narrowed response types --------------------------------------------
+
+#[tokio::test]
+async fn statics_decodes_into_typed_tables() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/statics"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "currencies": [{
+                "id": 1, "name": "US Dollar", "code": "USD", "symbol": "$",
+                "precision": 2, "thousand_separator": ",", "decimal_separator": ".",
+                "exchange_rate": 1.0, "swap_currency_symbol": false
+            }],
+            // payment_types is the table that returns a string id; the rest
+            // return numbers, and both must land as String.
+            "payment_types": [{ "id": "1", "name": "Bank Transfer" }],
+            "industries": [{ "id": 3, "name": "Advertising" }],
+            "countries": [{ "id": 840, "name": "United States", "iso_3166_2": "US" }],
+            "date_formats": [{ "id": 1, "format": "d/M/Y", "format_moment": "DD/MMM/YYYY" }],
+            "gateways": [{ "id": 1, "name": "Stripe", "fields": { "nested": true } }],
+            "bulk_updates": { "client": ["name"] },
+            "license_key": "self-host-only"
+        })))
+        .mount(&server)
+        .await;
+
+    let statics = client(&server)
+        .statics()
+        .await
+        .expect("statics should decode");
+
+    let usd = &statics.currencies[0];
+    assert_eq!(usd.id, "1", "a numeric id is normalised to a string");
+    assert_eq!(usd.code, "USD");
+    assert_eq!(usd.precision, Some(2));
+    assert_eq!(
+        statics.payment_types[0].id, "1",
+        "a string id passes through"
+    );
+    assert_eq!(statics.industries[0].name, "Advertising");
+    assert_eq!(statics.date_formats[0].format, "d/M/Y");
+    assert_eq!(
+        statics.countries[0].extra["iso_3166_2"], "US",
+        "untyped per-table fields stay reachable via extra"
+    );
+    assert!(statics.gateways.is_array(), "gateways stays untyped");
+    assert_eq!(
+        statics.extra["license_key"], "self-host-only",
+        "unmodeled top-level keys are preserved"
+    );
+}
+
+#[tokio::test]
+async fn statics_tolerates_tables_it_does_not_model() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/statics"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "currencies": null,
+            "brand_new_table": [{ "whatever": 1 }]
+        })))
+        .mount(&server)
+        .await;
+
+    let statics = client(&server)
+        .statics()
+        .await
+        .expect("should not hard-fail");
+    assert!(statics.currencies.is_empty(), "null decodes as empty");
+    assert!(statics.extra.contains_key("brand_new_table"));
+}
+
+#[tokio::test]
+async fn search_decodes_the_non_elasticsearch_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "clients": [{
+                "name": "Acme", "type": "/client",
+                "id": "Wpmbk5ezJn", "path": "/clients/Wpmbk5ezJn"
+            }],
+            "client_contacts": [],
+            "invoices": [],
+            "projects": [],
+            "settings": [{ "name": "Tax Settings", "type": "/settings", "path": "/settings/tax" }]
+        })))
+        .mount(&server)
+        .await;
+
+    let results = client(&server)
+        .search(&json!({ "search": "acme" }))
+        .await
+        .expect("search should decode");
+
+    assert_eq!(results.clients[0].name, "Acme");
+    assert_eq!(results.clients[0].id, "Wpmbk5ezJn");
+    assert_eq!(results.clients[0].r#type, "/client");
+    assert_eq!(results.settings[0].name, "Tax Settings");
+    // Buckets only the Elasticsearch path returns are absent, not an error.
+    assert!(results.quotes.is_empty());
+    assert!(results.vendors.is_empty());
+}
+
+#[tokio::test]
+async fn search_decodes_the_elasticsearch_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "clients": [],
+            "quotes": [{ "name": "Q1", "type": "/quote", "id": "q1", "path": "/quotes/q1" }],
+            "purchase_orders": [{ "name": "PO", "type": "/purchase_order", "id": "p1", "path": "/x" }]
+        })))
+        .mount(&server)
+        .await;
+
+    let results = client(&server)
+        .search(&json!({ "search": "q" }))
+        .await
+        .expect("the wider shape should decode too");
+    assert_eq!(results.quotes[0].id, "q1");
+    assert_eq!(results.purchase_orders[0].name, "PO");
+}
+
+#[tokio::test]
+async fn health_check_decodes_the_self_hosted_report() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/health_check"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "system_health": true,
+            "api_version": "5.8.56",
+            "php_version": {
+                "minimum_php_version": "8.1",
+                "current_php_version": "8.2.10",
+                "current_php_cli_version": "8.2.10",
+                "is_okay": true,
+                "memory_limit": "512M"
+            },
+            "simple_db_check": true,
+            "queue": "database",
+            "pdf_engine": "SnapPDF",
+            "is_docker": false,
+            "extensions": [{ "curl": true }]
+        })))
+        .mount(&server)
+        .await;
+
+    let health = client(&server).health_check().await.expect("should decode");
+    assert_eq!(health.system_health, Some(true));
+    assert_eq!(health.api_version, "5.8.56");
+    assert_eq!(health.queue, "database");
+    assert_eq!(
+        health
+            .php_version
+            .expect("php block present")
+            .current_php_version,
+        "8.2.10"
+    );
+}
+
+/// The hosted app skips the check and returns a bare message, so the same
+/// type has to cover both deployments.
+#[tokio::test]
+async fn health_check_decodes_the_hosted_message_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/health_check"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "", "errors": []
+        })))
+        .mount(&server)
+        .await;
+
+    let health = client(&server).health_check().await.expect("should decode");
+    assert_eq!(
+        health.system_health, None,
+        "no verdict is reported on hosted"
+    );
+    assert!(health.api_version.is_empty());
+}
+
+/// Regression: the endpoint answers with a `data`-wrapped entity, but this
+/// used to be decoded as a bare body, so callers got the envelope.
+#[tokio::test]
+async fn send_email_unwraps_the_data_envelope() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/emails"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "id": "inv1", "number": "INV-0001" }
+        })))
+        .mount(&server)
+        .await;
+
+    let invoice: invoiceninjars::models::Invoice = client(&server)
+        .send_email(&json!({ "entity": "invoice", "entity_id": "inv1" }))
+        .await
+        .expect("should return the refreshed entity");
+    assert_eq!(invoice.id.as_deref(), Some("inv1"));
+    assert_eq!(invoice.number, "INV-0001");
+}
+
+#[tokio::test]
+async fn generic_escape_hatches_still_work() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/statics"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "sizes": [] })))
+        .mount(&server)
+        .await;
+
+    let raw: serde_json::Value = client(&server)
+        .statics_as()
+        .await
+        .expect("statics_as should bypass the typed model");
+    assert!(raw["sizes"].is_array());
+}

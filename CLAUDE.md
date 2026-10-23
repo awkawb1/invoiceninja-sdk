@@ -34,6 +34,17 @@ serde layer, and `client_requests.rs` covers the request plumbing
 (pagination, path escaping, headers, timeouts, error mapping) against a
 `wiremock` server on loopback — no credentials or internet needed.
 
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+and semantic versioning. **Update it in the same change that alters
+behaviour** — add an entry under `## [Unreleased]`, in the right section
+(`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`), creating
+the section if it is not there yet. Entries describe the effect on a user of
+the crate, not the implementation: say what broke or changed for a caller and
+why, not which function was edited. Purely internal work (refactors, test-only
+changes, doc tweaks) does not need an entry.
+
 ## Architecture
 
 - `src/client.rs` — `InvoiceNinjaClient` holds a `reqwest::Client` (with the
@@ -60,11 +71,18 @@ serde layer, and `client_requests.rs` covers the request plumbing
   `/bulk` route** — currently `client_gateway_tokens`, `companies`, and
   `system_logs`. Check `routes/api.php` before assuming a resource has one;
   a generated `bulk_*` against a missing route just 405s.
-- Every request is built through the private `req(method, path)` helper,
-  which is the single place the optional `X-API-PASSWORD` header and the
-  per-request timeout are attached. **Don't call `self.http` directly in a
-  new helper** — it would silently skip both. Only `req` itself should touch
-  `self.http`.
+- Requests go through two chokepoints: `req(method, path)` builds them and is
+  the single place the optional `X-API-PASSWORD` header and the per-request
+  timeout are attached, and `execute(builder)` dispatches them and is the
+  single place retrying happens. **A new helper must use both** — calling
+  `self.http` directly would skip the header, the timeout, and the retry
+  policy. Only `req` and `execute` should touch `self.http`.
+- `src/retry.rs` — `RetryPolicy` plus the rules for what may be replayed.
+  **The method matters, not just the status.** A 429 means the server
+  refused the request without processing it, so any method is safe to
+  retry; a 5xx or timeout gives no such guarantee, so only idempotent
+  methods are. **Don't extend retrying to `POST` on 5xx** — this is a
+  billing API, and a replayed create would duplicate an invoice or payment.
 - **Interpolate ids into paths with `seg(id)?`, never raw.** It escapes the
   value into a single path segment and rejects ids that are empty or
   dot-only. Both halves matter: escaping stops a `/` or `?` in an id from

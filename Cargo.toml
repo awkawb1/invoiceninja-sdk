@@ -14,6 +14,9 @@ thiserror = "2"
 # Already in the tree via reqwest's `url`; used to escape ids before they are
 # interpolated into request paths.
 percent-encoding = "2"
+# Already in the tree as reqwest's runtime; only `time` is needed, for the
+# sleep between retries.
+tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

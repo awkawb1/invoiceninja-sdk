@@ -8,11 +8,12 @@ use crate::error::{ApiErrorBody, Error, Result};
 use crate::models::{
     BankIntegration, BankTransaction, BankTransactionRule, BulkRequest, Client as ClientModel,
     ClientGatewayToken, Company, CompanyGateway, CompanyToken, Credit, Design, Document, Expense,
-    ExpenseCategory, GroupSetting, Invoice, ItemResponse, ListParams, ListResponse, Location,
-    Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote, RecurringExpense,
-    RecurringInvoice, RecurringQuote, Subscription, SystemLog, Tag, Task, TaskScheduler,
-    TaskStatus, TaxRate, User, Vendor, Webhook,
+    ExpenseCategory, GroupSetting, HealthCheck, Invoice, ItemResponse, ListParams, ListResponse,
+    Location, Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote, RecurringExpense,
+    RecurringInvoice, RecurringQuote, SearchResults, Statics, Subscription, SystemLog, Tag, Task,
+    TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
 };
+use crate::retry::{self, RetryPolicy};
 
 /// API root of the hosted Invoice Ninja app.
 pub const HOSTED_BASE_URL: &str = "https://invoicing.co/api/v1";
@@ -73,6 +74,7 @@ pub struct InvoiceNinjaClient {
     /// in the derived `Debug`.
     api_password: Option<header::HeaderValue>,
     timeout: Duration,
+    retry: RetryPolicy,
 }
 
 impl InvoiceNinjaClient {
@@ -121,7 +123,17 @@ impl InvoiceNinjaClient {
             base_url,
             api_password: None,
             timeout: DEFAULT_TIMEOUT,
+            retry: RetryPolicy::default(),
         })
+    }
+
+    /// Replaces the retry policy, which defaults to
+    /// [`RetryPolicy::default`] (3 retries with full-jitter backoff).
+    ///
+    /// Pass [`RetryPolicy::none`] to attempt every request exactly once.
+    pub fn with_retry_policy(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
     }
 
     /// Overrides the per-request deadline, which defaults to
@@ -173,6 +185,63 @@ impl InvoiceNinjaClient {
         }
     }
 
+    /// Dispatches a built request, retrying transient failures per the
+    /// configured [`RetryPolicy`].
+    ///
+    /// Every helper goes through here, so retrying is uniform. The request is
+    /// cloned before each attempt; a body that cannot be cloned (none of ours
+    /// today, since all payloads are in-memory JSON) simply gets one attempt.
+    ///
+    /// Note what is *not* retried: a `POST` that fails with a 5xx or times
+    /// out is surfaced, because the server may already have applied it and a
+    /// replay would duplicate an invoice, payment, or email. See
+    /// [`crate::retry`] for the full rules.
+    async fn execute(&self, builder: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+        let mut request = builder.build()?;
+        let method = request.method().clone();
+        let mut attempt = 0u32;
+
+        loop {
+            let replay = if attempt < self.retry.max_retries {
+                request.try_clone()
+            } else {
+                None
+            };
+
+            let delay = match self.http.execute(request).await {
+                Ok(response) => {
+                    let Some(next) =
+                        replay.filter(|_| retry::status_is_retryable(response.status(), &method))
+                    else {
+                        return Ok(response);
+                    };
+                    // A server-supplied Retry-After wins over our backoff,
+                    // but one longer than we are willing to wait is returned
+                    // as the error instead of slept through.
+                    let delay = retry::retry_after(response.headers())
+                        .unwrap_or_else(|| self.retry.backoff(attempt));
+                    if delay > self.retry.max_delay {
+                        return Ok(response);
+                    }
+                    request = next;
+                    delay
+                }
+                Err(e) => {
+                    let Some(next) =
+                        replay.filter(|_| retry::transport_error_is_retryable(&e, &method))
+                    else {
+                        return Err(e.into());
+                    };
+                    request = next;
+                    self.retry.backoff(attempt)
+                }
+            };
+
+            tokio::time::sleep(delay).await;
+            attempt += 1;
+        }
+    }
+
     /// Builds a client pointed at the hosted app at `https://invoicing.co`.
     ///
     /// Equivalent to [`new`](Self::new) with [`HOSTED_BASE_URL`]. Prefer this
@@ -218,10 +287,11 @@ impl InvoiceNinjaClient {
         params: &ListParams,
     ) -> Result<Vec<T>> {
         let response = self
-            .req(Method::GET, path)
-            .query(params)
-            .query(&params.custom)
-            .send()
+            .execute(
+                self.req(Method::GET, path)
+                    .query(params)
+                    .query(&params.custom),
+            )
             .await?;
         let body: ListResponse<T> = Self::decode(response).await?;
         Ok(body.data)
@@ -272,10 +342,11 @@ impl InvoiceNinjaClient {
         loop {
             params.page = Some(page);
             let response = self
-                .req(Method::GET, path)
-                .query(&params)
-                .query(&params.custom)
-                .send()
+                .execute(
+                    self.req(Method::GET, path)
+                        .query(&params)
+                        .query(&params.custom),
+                )
                 .await?;
             let body: ListResponse<T> = Self::decode(response).await?;
             let got = body.data.len() as u64;
@@ -315,7 +386,7 @@ impl InvoiceNinjaClient {
     }
 
     async fn get_one<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let response = self.req(Method::GET, path).send().await?;
+        let response = self.execute(self.req(Method::GET, path)).await?;
         let body: ItemResponse<T> = Self::decode(response).await?;
         Ok(body.data)
     }
@@ -325,7 +396,9 @@ impl InvoiceNinjaClient {
         path: &str,
         payload: &B,
     ) -> Result<T> {
-        let response = self.req(Method::POST, path).json(payload).send().await?;
+        let response = self
+            .execute(self.req(Method::POST, path).json(payload))
+            .await?;
         let body: ItemResponse<T> = Self::decode(response).await?;
         Ok(body.data)
     }
@@ -335,13 +408,15 @@ impl InvoiceNinjaClient {
         path: &str,
         payload: &B,
     ) -> Result<T> {
-        let response = self.req(Method::PUT, path).json(payload).send().await?;
+        let response = self
+            .execute(self.req(Method::PUT, path).json(payload))
+            .await?;
         let body: ItemResponse<T> = Self::decode(response).await?;
         Ok(body.data)
     }
 
     async fn delete_one(&self, path: &str) -> Result<()> {
-        let response = self.req(Method::DELETE, path).send().await?;
+        let response = self.execute(self.req(Method::DELETE, path)).await?;
         let status = response.status();
         let bytes = response.bytes().await?;
         if status.is_success() {
@@ -356,7 +431,9 @@ impl InvoiceNinjaClient {
         path: &str,
         payload: &B,
     ) -> Result<Vec<T>> {
-        let response = self.req(Method::POST, path).json(payload).send().await?;
+        let response = self
+            .execute(self.req(Method::POST, path).json(payload))
+            .await?;
         let body: ListResponse<T> = Self::decode(response).await?;
         Ok(body.data)
     }
@@ -364,7 +441,7 @@ impl InvoiceNinjaClient {
     /// Returns the raw response body. Used for endpoints that do not answer
     /// with JSON — PDF streams (`application/pdf`) and CSV report exports.
     async fn get_raw(&self, path: &str) -> Result<Vec<u8>> {
-        let response = self.req(Method::GET, path).send().await?;
+        let response = self.execute(self.req(Method::GET, path)).await?;
         let status = response.status();
         let bytes = response.bytes().await?;
         if status.is_success() {
@@ -375,7 +452,9 @@ impl InvoiceNinjaClient {
     }
 
     async fn post_raw<B: Serialize>(&self, path: &str, payload: &B) -> Result<Vec<u8>> {
-        let response = self.req(Method::POST, path).json(payload).send().await?;
+        let response = self
+            .execute(self.req(Method::POST, path).json(payload))
+            .await?;
         let status = response.status();
         let bytes = response.bytes().await?;
         if status.is_success() {
@@ -388,7 +467,7 @@ impl InvoiceNinjaClient {
     /// Decodes a response that has no envelope and no stable schema
     /// (`/statics`, `/charts/*`, `/search`).
     async fn get_unwrapped<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let response = self.req(Method::GET, path).send().await?;
+        let response = self.execute(self.req(Method::GET, path)).await?;
         Self::decode(response).await
     }
 
@@ -397,7 +476,9 @@ impl InvoiceNinjaClient {
         path: &str,
         payload: &B,
     ) -> Result<T> {
-        let response = self.req(Method::POST, path).json(payload).send().await?;
+        let response = self
+            .execute(self.req(Method::POST, path).json(payload))
+            .await?;
         Self::decode(response).await
     }
 
@@ -877,8 +958,15 @@ impl InvoiceNinjaClient {
     /// Posts to a `/charts/{name}` endpoint, e.g. `totals_v2`,
     /// `chart_summary_v2`, `calculated_fields`, `cashflow_forecast`.
     ///
-    /// The chart payloads have no stable published schema, so the response is
-    /// returned untyped.
+    /// Deliberately still generic. Unlike the other endpoints here, the
+    /// eleven charts share no common response shape — `totals_v2` answers
+    /// with per-currency maps, `cashflow_forecast` with a date series,
+    /// `calculated_fields` with scalars — so there is nothing to narrow to.
+    /// Pass `serde_json::Value`, or your own struct for the chart you are
+    /// calling.
+    ///
+    /// `project_analytics` and `project_burnup` take a project id as a
+    /// further path segment: `chart("project_burnup/<id>", &body)`.
     pub async fn chart<B: Serialize, T: DeserializeOwned>(
         &self,
         name: &str,
@@ -888,33 +976,58 @@ impl InvoiceNinjaClient {
     }
 
     /// Full-text search across entities.
-    pub async fn search<B: Serialize, T: DeserializeOwned>(&self, body: &B) -> Result<T> {
+    ///
+    /// Which buckets of [`SearchResults`] are filled depends on whether the
+    /// server has Elasticsearch enabled; see the type's docs.
+    pub async fn search<B: Serialize>(&self, body: &B) -> Result<SearchResults> {
+        self.search_as(body).await
+    }
+
+    /// [`search`](Self::search) decoded into a caller-chosen type.
+    pub async fn search_as<B: Serialize, T: DeserializeOwned>(&self, body: &B) -> Result<T> {
         self.post_unwrapped("search", body).await
     }
 
     /// Fetches the static lookup tables.
     ///
-    /// The response is a single object keyed by lookup name; the official PHP
-    /// SDK exposes `currencies`, `industries`, `languages`, `countries`,
-    /// `banks`, `payment_types`, and `templates`, and the API also returns
-    /// `timezones`, `date_formats`, `datetime_formats`, `gateways`, and
-    /// `sizes`.
-    ///
-    /// Each table has its own field set (currencies carry `symbol` and
-    /// `precision`, countries carry ISO codes), so there's no shared item
-    /// type; decode into `serde_json::Value`, or into your own struct
-    /// covering just the tables you need.
-    ///
     /// This is a large and near-constant payload — cache it rather than
     /// fetching per request.
-    pub async fn statics<T: DeserializeOwned>(&self) -> Result<T> {
+    pub async fn statics(&self) -> Result<Statics> {
+        self.statics_as().await
+    }
+
+    /// [`statics`](Self::statics) decoded into a caller-chosen type.
+    ///
+    /// [`Statics`] types the uniform lookup tables and keeps the rest in
+    /// `extra`; use this to pin tables it leaves untyped, such as `gateways`
+    /// or `templates`.
+    pub async fn statics_as<T: DeserializeOwned>(&self) -> Result<T> {
         self.get_unwrapped("statics").await
     }
 
     /// Queues an email for an entity. The body selects the target, e.g.
     /// `{"entity": "invoice", "entity_id": "...", "template": "email_template_invoice"}`.
+    ///
+    /// Returns the refreshed entity, so `T` is the type the email was sent
+    /// for — [`Invoice`], [`Quote`], [`Credit`], or [`PurchaseOrder`]:
+    ///
+    /// ```no_run
+    /// # async fn run(client: &invoiceninjars::InvoiceNinjaClient) -> invoiceninjars::Result<()> {
+    /// use invoiceninjars::models::Invoice;
+    /// use serde_json::json;
+    ///
+    /// let invoice: Invoice = client
+    ///     .send_email(&json!({ "entity": "invoice", "entity_id": "Wpmbk5ezJn" }))
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// It stays generic over the entity because the endpoint serves all four,
+    /// but the `data` envelope is now unwrapped for you — it previously was
+    /// not, so callers had to model the wrapper themselves.
     pub async fn send_email<B: Serialize, T: DeserializeOwned>(&self, body: &B) -> Result<T> {
-        self.post_unwrapped("emails", body).await
+        self.post_one("emails", body).await
     }
 
     /// Refunds a payment. The body takes `id`, optionally `amount`,
@@ -931,7 +1044,17 @@ impl InvoiceNinjaClient {
     }
 
     /// Server-side health check (database, queues, and so on).
-    pub async fn health_check<T: DeserializeOwned>(&self) -> Result<T> {
+    ///
+    /// The hosted app does not run the check and answers with a bare
+    /// message, so most fields of [`HealthCheck`] are `Option` — see its
+    /// docs.
+    pub async fn health_check(&self) -> Result<HealthCheck> {
+        self.health_check_as().await
+    }
+
+    /// [`health_check`](Self::health_check) decoded into a caller-chosen
+    /// type.
+    pub async fn health_check_as<T: DeserializeOwned>(&self) -> Result<T> {
         self.get_unwrapped("health_check").await
     }
 }

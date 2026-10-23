@@ -1,4 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListResponse<T> {
@@ -130,6 +131,27 @@ where
     T: Deserialize<'de> + Default,
 {
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Deserializes an id that may arrive as either a JSON string or a number.
+///
+/// The `/statics` tables are inconsistent about this: `payment_types` casts
+/// its id to a string server-side while the other lookup tables leave theirs
+/// as integers. Rather than guess per table — where a wrong choice is a hard
+/// decode error that breaks the whole response — both forms are accepted and
+/// normalised to `String`.
+pub(crate) fn id_as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<Value>::deserialize(deserializer)? {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(s)) => Ok(s),
+        Some(Value::Number(n)) => Ok(n.to_string()),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected a string or number id, got {other}"
+        ))),
+    }
 }
 
 /// Body for a bulk action (`POST /{resource}/bulk`).

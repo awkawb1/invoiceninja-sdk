@@ -242,10 +242,28 @@ written yet:
 
 ### Typed response gaps
 
-`statics`, `chart`, `search`, `send_email`, and `health_check` are generic
-over `T: DeserializeOwned` rather than returning concrete structs, because
-none of them has a stable published schema. Pass `serde_json::Value`, or your
-own struct to pin the parts you rely on.
+`statics`, `search`, and `health_check` return concrete types (`Statics`,
+`SearchResults`, `HealthCheck`). Each keeps the crate's `extra` convention,
+so fields they don't model stay reachable rather than being dropped, and
+each has a generic counterpart — `statics_as`, `search_as`,
+`health_check_as` — for pinning a shape they leave untyped.
+
+Two remain generic on purpose:
+
+- **`chart`** — the eleven chart endpoints share no common response shape
+  (`totals_v2` returns per-currency maps, `cashflow_forecast` a date series,
+  `calculated_fields` scalars), so there is nothing to narrow to.
+- **`send_email`** — the endpoint serves invoices, quotes, credits, and
+  purchase orders, and answers with whichever entity was emailed. The `data`
+  envelope *is* unwrapped, so `T` is the entity itself.
+
+Within the typed models, a few fields are deliberately left as
+`serde_json::Value`: `Statics::gateways`, `Statics::templates`,
+`Statics::bulk_updates`, `HealthCheck::extensions`, and
+`HealthCheck::queue_data`. These are nested configuration blobs rather than
+uniform lookup rows, and the same reasoning applies as for
+`Company::settings` — a wrong concrete type is a hard decode error, whereas
+`Value` is lossless.
 
 ## Compared with the official PHP SDK
 

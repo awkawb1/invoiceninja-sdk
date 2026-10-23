@@ -50,14 +50,24 @@ let all_clients = client.list_all_clients(&ListParams::new()).await?;
 ```
 
 Every request carries a 60-second deadline by default, since `reqwest`
-applies none of its own. Override it for slow report exports or large
-`list_all_*` walks:
+applies none of its own, and transient failures are retried up to 3 times
+with exponential backoff. Both are configurable:
 
 ```rust
 use std::time::Duration;
+use invoiceninjars::RetryPolicy;
 
-let client = InvoiceNinjaClient::hosted(token)?.with_timeout(Duration::from_secs(300));
+let client = InvoiceNinjaClient::hosted(token)?
+    .with_timeout(Duration::from_secs(300))
+    .with_retry_policy(RetryPolicy::new(5));
 ```
+
+Retrying is deliberately conservative about `POST`. A `POST` that fails with
+a 5xx or times out is **not** replayed, because the server may have applied
+it before the response was lost and a repeat would create a second invoice
+or payment. A 429 is retried for any method, since the server states it
+refused the request without processing it. Pass `RetryPolicy::none()` to
+disable retrying entirely.
 
 Run the example (requires `IN_API_TOKEN`, optionally `IN_BASE_URL`):
 
