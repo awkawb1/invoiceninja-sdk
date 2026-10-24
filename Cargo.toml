@@ -9,7 +9,7 @@ edition = "2021"
 rust-version = "1.88"
 description = "An async Rust client for the Invoice Ninja v5 API"
 license = "MIT"
-repository = "https://github.com/bryant/invoiceninjars"
+repository = "https://github.com/awkawb1/invoiceninja-sdk"
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }

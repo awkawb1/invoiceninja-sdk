@@ -8,6 +8,12 @@ Requires Rust 1.88 or newer.
 > breaking changes in minor releases; `CHANGELOG.md` records them.
 > [`GOALS.md`](GOALS.md) covers what the crate is for and what it is not.
 
+> **Development happens on
+> [Gitea](https://gitea.awkawb.cloud/awkawb/invoiceninja); the
+> [GitHub copy](https://github.com/awkawb1/invoiceninja-sdk) is a read-only
+> mirror.** Anything pushed to GitHub is overwritten by the next sync, so
+> please open issues and pull requests on Gitea.
+
 ## Development
 
 Enter the dev shell (Rust toolchain via `rust-overlay`):

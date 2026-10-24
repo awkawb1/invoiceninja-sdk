@@ -120,6 +120,13 @@ before 1.0**. Pin an exact version; expect breaking changes in minor
 releases. `CHANGELOG.md` records them, and breaking changes should be
 legible there rather than discovered at compile time.
 
+**Gitea is the source of truth; GitHub is a one-way mirror.** The canonical
+repository is `gitea.awkawb.cloud/awkawb/invoiceninja`. A Gitea push mirror
+copies every commit to <https://github.com/awkawb1/invoiceninja-sdk>, which
+is what `Cargo.toml` points at. Nothing should be written to the GitHub
+copy: the next sync overwrites it, so a merged pull request there would
+simply disappear. Contributions go through Gitea.
+
 `Error` is `#[non_exhaustive]` so that adding variants is not itself a
 breaking change.
 
