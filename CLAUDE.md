@@ -89,6 +89,34 @@ serde layer, and `client_requests.rs` covers the request plumbing
 (pagination, path escaping, headers, timeouts, error mapping) against a
 `wiremock` server on loopback — no credentials or internet needed.
 
+### Testing against a real server
+
+Everything above is checked against mock servers written from the upstream
+source, so it cannot catch a place where the real server disagrees with that
+reading. `examples/smoke_test.rs` can:
+
+```sh
+# Read-only (GET requests only). IN_BASE_URL has no default, on purpose.
+IN_BASE_URL=http://localhost:8080/api/v1 IN_API_TOKEN=... \
+  cargo run --example smoke_test
+
+# Adds a write tier: create a throwaway client, upload files to it, delete it.
+IN_SMOKE_WRITE_HOST=localhost IN_BASE_URL=... IN_API_TOKEN=... \
+  cargo run --example smoke_test
+```
+
+**Never point the write tier at a production server.** The guard is that
+`IN_SMOKE_WRITE_HOST` must equal the host in `IN_BASE_URL`, so a write only
+reaches a server that was named explicitly. Even after its delete the write
+tier leaves a gap in the client number sequence and a soft-deleted row (a
+real purge needs the account password), and it may fire webhooks. Use a
+disposable instance — a local VM or container — for it.
+
+It prints PASS/FAIL per check and never the contents of a record. The upload
+wire format (`POST` plus `_method=PUT`) was read from the framework source
+rather than observed, so the first run of the write tier against a real
+instance is the real verification of it.
+
 ## Changelog
 
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)

@@ -1450,3 +1450,28 @@ async fn every_upload_method_targets_its_own_route() {
         .map(|resource| format!("/{resource}/i/upload"))
     );
 }
+
+// --- transport error diagnosability -------------------------------------
+
+/// `reqwest`'s own message stops at "error sending request for url (...)".
+/// The reason is in the source chain, and was invisible to anyone who just
+/// printed the error.
+#[tokio::test]
+async fn transport_errors_say_why_the_request_failed() {
+    // Port 1 is reserved and nothing listens on it.
+    let client = InvoiceNinjaClient::new("http://127.0.0.1:1/api/v1", "t")
+        .unwrap()
+        .with_retry_policy(RetryPolicy::none());
+
+    let err = client
+        .list_clients(&ListParams::new())
+        .await
+        .expect_err("nothing is listening");
+
+    assert!(matches!(err, Error::Http(_)), "got {err:?}");
+    let rendered = err.to_string().to_lowercase();
+    assert!(
+        rendered.contains("refused"),
+        "the cause should appear in the message, got: {rendered}"
+    );
+}

@@ -68,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from a proxy or a login redirect from a wrong base URL.
 - API errors with an empty or message-less body now report the status reason
   ("Not Found") instead of rendering blank.
+- `Error::Http` now renders its whole cause chain. `reqwest`'s own message
+  stops at "error sending request for url (...)", leaving out the part that
+  says why — "Connection refused", a DNS failure, a TLS handshake error — so
+  anyone printing the error had no way to tell which it was.
 
 ### Fixed
 

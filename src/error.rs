@@ -15,7 +15,11 @@ pub struct ApiErrorBody {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("http transport error: {0}")]
+    /// Rendered with its whole cause chain, because `reqwest`'s own message
+    /// stops at "error sending request for url (...)" and leaves out the part
+    /// that says why: "Connection refused", a DNS failure, a TLS handshake
+    /// error, a timeout.
+    #[error("http transport error: {}", cause_chain(.0))]
     Http(#[from] reqwest::Error),
 
     /// The response was not the JSON this endpoint is documented to return.
@@ -74,3 +78,23 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Joins an error and every error beneath it with `: `.
+///
+/// `reqwest::Error`'s `Display` prints only the outermost layer, so the
+/// reason a request failed lives in `source()` and is otherwise invisible to
+/// anyone who just prints the error.
+fn cause_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        // Some layers repeat their cause's text; don't print it twice.
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
