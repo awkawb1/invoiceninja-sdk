@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Document uploads: `upload_client`, `upload_invoice`, `upload_expense`, and
+  thirteen more, one for each resource with an `/{id}/upload` route. They
+  take a `Vec<FileUpload>` and an optional `is_public`, and return the
+  refreshed record. Uploads are never retried, since a replay could attach
+  the file twice. This is the only way the API creates a document, so there
+  is no `create_document`. Enables reqwest's `multipart` feature, which adds
+  `mime`, `mime_guess`, and `unicase` and leaves the MSRV at 1.88.
+- `FileUpload` and `Error::InvalidUpload`. An upload with no files, a nameless
+  file, or an unparseable MIME type is refused locally, because the server
+  answers an empty upload with a success that changed nothing.
 - A declared minimum supported Rust version of **1.88**, verified by running
   the test suite against it. The floor comes from the dependency graph
   (`reqwest` → `url` → `idna` → `icu_*`), not from this crate's own code.
@@ -17,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release. The advisory job fails visibly rather than silently; it is kept
   non-blocking through branch protection rather than `continue-on-error`.
 - Wrappers for every one of the API's 34 `Route::resource` groups, plus
-  `users` — 265 methods. See `COVERAGE.md` for the per-endpoint inventory.
+  `users` — 284 methods (including document uploads). See `COVERAGE.md` for the per-endpoint inventory.
 - `COVERAGE.md`, a detailed record of what is wrapped, what is not, and why,
   checked against `routes/api.php` on the `v5-stable` branch.
 - Retry with full-jitter exponential backoff, configurable through

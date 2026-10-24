@@ -1176,3 +1176,277 @@ async fn no_budget_means_only_max_retries_bounds_the_call() {
         .expect_err("still fails");
     assert_eq!(server.received_requests().await.unwrap().len(), 5);
 }
+
+// --- document uploads ---------------------------------------------------
+
+use invoiceninjars::FileUpload;
+
+fn pdf(name: &str) -> FileUpload {
+    FileUpload::new(name, b"%PDF-1.4 fake".to_vec()).mime("application/pdf")
+}
+
+fn body_text(request: &wiremock::Request) -> String {
+    String::from_utf8_lossy(&request.body).into_owned()
+}
+
+async fn upload_ok_server(route: &str) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(path(route))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": { "id": "abc" } })))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// The route is registered as PUT, but PHP does not parse multipart on a PUT,
+/// so the files would never arrive. The working form is POST with a
+/// `_method=PUT` field, which Laravel turns back into a PUT before routing.
+#[tokio::test]
+async fn upload_is_a_post_that_spoofs_put_with_documents_as_an_array() {
+    let server = upload_ok_server("/clients/abc/upload").await;
+
+    let updated = client(&server)
+        .upload_client("abc", vec![pdf("receipt.pdf")], None)
+        .await
+        .expect("upload should succeed");
+    assert_eq!(updated.id.as_deref(), Some("abc"), "returns the entity");
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(
+        sent.method.as_str(),
+        "POST",
+        "a real PUT would drop the files"
+    );
+    let content_type = sent.headers.get("content-type").unwrap().to_str().unwrap();
+    assert!(
+        content_type.starts_with("multipart/form-data; boundary="),
+        "got {content_type}"
+    );
+    assert_eq!(
+        sent.headers.get("x-api-token").unwrap().to_str().unwrap(),
+        "test-token"
+    );
+
+    let body = body_text(sent);
+    assert!(body.contains("name=\"_method\"\r\n\r\nPUT"), "body: {body}");
+    assert!(
+        body.contains("name=\"documents[]\"; filename=\"receipt.pdf\""),
+        "body: {body}"
+    );
+    assert!(body.contains("Content-Type: application/pdf"));
+    assert!(
+        body.contains("%PDF-1.4 fake"),
+        "file bytes must be in the body"
+    );
+}
+
+/// Laravel's `boolean` rule accepts only true, false, 0, 1, '0' and '1' under
+/// strict comparison, so the string "true" fails validation.
+#[tokio::test]
+async fn is_public_is_sent_as_one_or_zero_never_true_false() {
+    for (flag, expected) in [
+        (Some(true), Some("1")),
+        (Some(false), Some("0")),
+        (None, None),
+    ] {
+        let server = upload_ok_server("/invoices/abc/upload").await;
+        client(&server)
+            .upload_invoice("abc", vec![pdf("a.pdf")], flag)
+            .await
+            .expect("upload should succeed");
+
+        let body = body_text(&server.received_requests().await.unwrap()[0]);
+        match expected {
+            Some(value) => assert!(
+                body.contains(&format!("name=\"is_public\"\r\n\r\n{value}\r\n")),
+                "is_public={flag:?} should send {value}, body: {body}"
+            ),
+            None => assert!(
+                !body.contains("is_public"),
+                "an unset flag must be omitted, not defaulted, body: {body}"
+            ),
+        }
+        assert!(!body.contains("true") && !body.contains("false"));
+    }
+}
+
+#[tokio::test]
+async fn several_files_become_several_document_parts() {
+    let server = upload_ok_server("/expenses/abc/upload").await;
+    client(&server)
+        .upload_expense("abc", vec![pdf("one.pdf"), pdf("two.pdf")], None)
+        .await
+        .expect("upload should succeed");
+
+    let body = body_text(&server.received_requests().await.unwrap()[0]);
+    assert_eq!(body.matches("name=\"documents[]\"").count(), 2);
+    assert!(body.contains("filename=\"one.pdf\"") && body.contains("filename=\"two.pdf\""));
+}
+
+/// An upload with nothing in it is answered with a success that changed
+/// nothing; that is caught locally instead.
+#[tokio::test]
+async fn invalid_uploads_are_rejected_before_any_request() {
+    let server = upload_ok_server("/clients/abc/upload").await;
+    let c = client(&server);
+
+    let none = c.upload_client("abc", vec![], None).await.unwrap_err();
+    assert!(matches!(none, Error::InvalidUpload(_)), "got {none:?}");
+
+    let nameless = c
+        .upload_client("abc", vec![FileUpload::new("  ", b"x".to_vec())], None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(nameless, Error::InvalidUpload(_)),
+        "got {nameless:?}"
+    );
+
+    let bad_mime = c
+        .upload_client(
+            "abc",
+            vec![FileUpload::new("a.txt", b"x".to_vec()).mime("not a mime")],
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(bad_mime, Error::InvalidUpload(_)),
+        "got {bad_mime:?}"
+    );
+
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn upload_ids_get_the_same_path_protection() {
+    let server = upload_ok_server("/clients/x/upload").await;
+    let err = client(&server)
+        .upload_client("..", vec![pdf("a.pdf")], None)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::InvalidPathSegment(_)), "got {err:?}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+/// An upload ADDS a document, so it is not idempotent whatever the HTTP verb.
+/// A replay after a lost response would attach the file twice. This holds
+/// only because reqwest's multipart body cannot be cloned, which nothing in
+/// the types enforces, so it is pinned here for 5xx and 429 alike.
+#[tokio::test]
+async fn uploads_are_never_replayed() {
+    for status in [500u16, 503, 429] {
+        let server = MockServer::start().await;
+        Mock::given(path("/clients/abc/upload"))
+            .respond_with(ResponseTemplate::new(status))
+            .mount(&server)
+            .await;
+
+        let err = client(&server)
+            .with_retry_policy(quick_retry())
+            .upload_client("abc", vec![pdf("a.pdf")], None)
+            .await
+            .expect_err("the failure should surface");
+        assert!(
+            matches!(err, Error::Api { status: s, .. } if s == status),
+            "got {err:?}"
+        );
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            1,
+            "a {status} on an upload must not be retried"
+        );
+    }
+}
+
+#[tokio::test]
+async fn upload_validation_errors_keep_the_field_map() {
+    let server = MockServer::start().await;
+    Mock::given(path("/clients/abc/upload"))
+        .respond_with(ResponseTemplate::new(422).set_body_json(json!({
+            "message": "The given data was invalid.",
+            "errors": { "documents.0": ["The documents.0 must be a file of type: pdf."] }
+        })))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .upload_client("abc", vec![pdf("a.exe")], None)
+        .await
+        .unwrap_err();
+    match err {
+        Error::Api { status, errors, .. } => {
+            assert_eq!(status, 422);
+            assert!(errors.contains_key("documents.0"));
+        }
+        other => panic!("expected Error::Api, got {other:?}"),
+    }
+}
+
+#[test]
+fn file_upload_debug_never_prints_the_contents() {
+    let file = FileUpload::new("secret.pdf", b"CONFIDENTIAL-CONTENTS".to_vec());
+    let rendered = format!("{file:?}");
+    assert!(!rendered.contains("CONFIDENTIAL"), "got {rendered}");
+    assert!(rendered.contains("secret.pdf") && rendered.contains("21"));
+}
+
+/// The sixteen methods come from one macro, so a typo in a path or a wrong
+/// resource name would only show up here.
+#[tokio::test]
+async fn every_upload_method_targets_its_own_route() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {} })))
+        .mount(&server)
+        .await;
+    let c = client(&server);
+    let f = || vec![pdf("a.pdf")];
+
+    c.upload_client("i", f(), None).await.unwrap();
+    c.upload_company("i", f(), None).await.unwrap();
+    c.upload_credit("i", f(), None).await.unwrap();
+    c.upload_expense("i", f(), None).await.unwrap();
+    c.upload_group_setting("i", f(), None).await.unwrap();
+    c.upload_invoice("i", f(), None).await.unwrap();
+    c.upload_payment("i", f(), None).await.unwrap();
+    c.upload_product("i", f(), None).await.unwrap();
+    c.upload_project("i", f(), None).await.unwrap();
+    c.upload_purchase_order("i", f(), None).await.unwrap();
+    c.upload_quote("i", f(), None).await.unwrap();
+    c.upload_recurring_expense("i", f(), None).await.unwrap();
+    c.upload_recurring_invoice("i", f(), None).await.unwrap();
+    c.upload_recurring_quote("i", f(), None).await.unwrap();
+    c.upload_task("i", f(), None).await.unwrap();
+    c.upload_vendor("i", f(), None).await.unwrap();
+
+    let paths: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.url.path().to_string())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "clients",
+            "companies",
+            "credits",
+            "expenses",
+            "group_settings",
+            "invoices",
+            "payments",
+            "products",
+            "projects",
+            "purchase_orders",
+            "quotes",
+            "recurring_expenses",
+            "recurring_invoices",
+            "recurring_quotes",
+            "tasks",
+            "vendors",
+        ]
+        .map(|resource| format!("/{resource}/i/upload"))
+    );
+}

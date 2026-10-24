@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use reqwest::{header, Method, StatusCode};
+use reqwest::{header, multipart, Method, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::error::{ApiErrorBody, Error, Result};
@@ -14,6 +14,7 @@ use crate::models::{
     TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
 };
 use crate::retry::{self, RetryPolicy};
+use crate::upload::FileUpload;
 
 /// API root of the hosted Invoice Ninja app.
 pub const HOSTED_BASE_URL: &str = "https://invoicing.co/api/v1";
@@ -220,8 +221,16 @@ impl InvoiceNinjaClient {
     /// configured [`RetryPolicy`].
     ///
     /// Every helper goes through here, so retrying is uniform. The request is
-    /// cloned before each attempt; a body that cannot be cloned (none of ours
-    /// today, since all payloads are in-memory JSON) simply gets one attempt.
+    /// cloned before each attempt; a body that cannot be cloned simply gets
+    /// one attempt.
+    ///
+    /// Multipart uploads rely on that. `reqwest` builds their body as a
+    /// stream, so `try_clone` returns `None` and they are never replayed —
+    /// not even on a 429. That is wanted: an upload *adds* a document, so it
+    /// is not idempotent whatever its HTTP verb, and a replay after a lost
+    /// response would attach the file twice. A test pins this, because
+    /// nothing in the types would stop a future change from making the body
+    /// cloneable and silently breaking it.
     ///
     /// Note what is *not* retried: a `POST` that fails with a 5xx or times
     /// out is surfaced, because the server may already have applied it and a
@@ -545,6 +554,44 @@ impl InvoiceNinjaClient {
         Self::decode(response).await
     }
 
+    /// Attaches files to a record through its `/upload` route.
+    ///
+    /// The route is registered as `PUT`, but PHP does not parse a multipart
+    /// body on a `PUT`, so the files would never arrive. The working form is
+    /// a `POST` carrying `_method=PUT`, which Laravel's kernel turns back
+    /// into a `PUT` before routing. The published OpenAPI spec documents
+    /// `POST` with `_method=POST`, which would 405 against these routes.
+    ///
+    /// `is_public` goes out as `1`/`0`: Laravel's `boolean` rule accepts only
+    /// `true`, `false`, `0`, `1`, `'0'` and `'1'`, so the string `"true"`
+    /// fails validation.
+    async fn upload_files<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        files: Vec<FileUpload>,
+        is_public: Option<bool>,
+    ) -> Result<T> {
+        // The server answers an upload with no files with a success that
+        // changed nothing, which is exactly the quiet failure to avoid.
+        if files.is_empty() {
+            return Err(Error::InvalidUpload("no files to upload".into()));
+        }
+
+        let mut form = multipart::Form::new().text("_method", "PUT");
+        if let Some(is_public) = is_public {
+            form = form.text("is_public", if is_public { "1" } else { "0" });
+        }
+        for file in files {
+            form = form.part("documents[]", file.into_part()?);
+        }
+
+        let response = self
+            .execute(self.req(Method::POST, path).multipart(form))
+            .await?;
+        let body: ItemResponse<T> = Self::decode(response).await?;
+        Ok(body.data)
+    }
+
     /// Issues a request whose body is discarded, failing on non-2xx.
     async fn get_discard(&self, path: &str) -> Result<()> {
         self.get_raw(path).await.map(|_| ())
@@ -604,6 +651,34 @@ macro_rules! resource_methods {
         /// as an empty `Vec`.
         pub async fn $bulk(&self, action: &str, ids: &[impl AsRef<str>]) -> Result<Vec<$model>> {
             self.post_list(&format!("{}/bulk", $path), &BulkRequest::new(action, ids))
+                .await
+        }
+    };
+}
+
+/// Generates `upload_{x}`, which attaches files through
+/// `PUT /{resource}/{id}/upload`. Sixteen resources expose this route; check
+/// `routes/api.php` before adding one.
+///
+/// The upload route is how a document is created at all —
+/// `DocumentController::store` is an empty stub upstream, which is why there
+/// is no `create_document`.
+macro_rules! upload_methods {
+    ($upload:ident, $path:literal, $model:ty) => {
+        /// Attaches files to the record and returns it as refreshed by the
+        /// server. `is_public` sets whether the documents are visible to the
+        /// client in the portal; `None` leaves the server default.
+        ///
+        /// The server enforces file type and size limits, which surface as a
+        /// 422 [`Error::Api`](crate::Error::Api). Uploads are never retried,
+        /// since a replay could attach the file twice.
+        pub async fn $upload(
+            &self,
+            id: &str,
+            files: Vec<FileUpload>,
+            is_public: Option<bool>,
+        ) -> Result<$model> {
+            self.upload_files(&format!("{}/{}/upload", $path, seg(id)?), files, is_public)
                 .await
         }
     };
@@ -976,6 +1051,33 @@ impl InvoiceNinjaClient {
         self.post_list("documents/bulk", &BulkRequest::new(action, ids))
             .await
     }
+
+    // --- document uploads -----------------------------------------------
+
+    upload_methods!(upload_client, "clients", ClientModel);
+    upload_methods!(upload_company, "companies", Company);
+    upload_methods!(upload_credit, "credits", Credit);
+    upload_methods!(upload_expense, "expenses", Expense);
+    upload_methods!(upload_group_setting, "group_settings", GroupSetting);
+    upload_methods!(upload_invoice, "invoices", Invoice);
+    upload_methods!(upload_payment, "payments", Payment);
+    upload_methods!(upload_product, "products", Product);
+    upload_methods!(upload_project, "projects", Project);
+    upload_methods!(upload_purchase_order, "purchase_orders", PurchaseOrder);
+    upload_methods!(upload_quote, "quotes", Quote);
+    upload_methods!(
+        upload_recurring_expense,
+        "recurring_expenses",
+        RecurringExpense
+    );
+    upload_methods!(
+        upload_recurring_invoice,
+        "recurring_invoices",
+        RecurringInvoice
+    );
+    upload_methods!(upload_recurring_quote, "recurring_quotes", RecurringQuote);
+    upload_methods!(upload_task, "tasks", Task);
+    upload_methods!(upload_vendor, "vendors", Vendor);
 
     // --- entity actions with non-entity responses -----------------------
 

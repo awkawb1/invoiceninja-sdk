@@ -18,7 +18,9 @@ mod client;
 mod error;
 pub mod models;
 mod retry;
+mod upload;
 
 pub use client::{InvoiceNinjaClient, DEFAULT_TIMEOUT, HOSTED_BASE_URL};
 pub use error::{ApiErrorBody, Error, Result};
 pub use retry::RetryPolicy;
+pub use upload::FileUpload;

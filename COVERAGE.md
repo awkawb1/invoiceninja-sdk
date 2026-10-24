@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 265 methods in total.
+not a resource group). 284 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -123,6 +123,54 @@ same reason: the response isn't JSON.
 
 Convenience wrappers: `mark_invoice_sent` and `mark_invoice_paid`.
 
+## Document uploads
+
+`PUT /{resource}/{id}/upload` exists for 16 resources, each getting
+`upload_{singular}(id, files, is_public)` that returns the refreshed record:
+
+| Resource | Method |
+| --- | --- |
+| Clients | `upload_client` |
+| Companies | `upload_company` |
+| Credits | `upload_credit` |
+| Expenses | `upload_expense` |
+| Group Settings | `upload_group_setting` |
+| Invoices | `upload_invoice` |
+| Payments | `upload_payment` |
+| Products | `upload_product` |
+| Projects | `upload_project` |
+| Purchase Orders | `upload_purchase_order` |
+| Quotes | `upload_quote` |
+| Recurring Expenses | `upload_recurring_expense` |
+| Recurring Invoices | `upload_recurring_invoice` |
+| Recurring Quotes | `upload_recurring_quote` |
+| Tasks | `upload_task` |
+| Vendors | `upload_vendor` |
+
+This is the *only* way the API creates a document:
+`DocumentController::store` is an empty stub upstream, so `Document` has
+`list`, `get`, `update`, `delete`, `download`, and `bulk`, but no
+`create_document`, and there will not be one.
+
+Three details that are easy to get wrong, all verified against the upstream
+source rather than the published spec:
+
+- **The request is a `POST` carrying `_method=PUT`.** The route is
+  registered as `PUT`, but PHP does not parse a multipart body on a `PUT`, so
+  the files would never arrive. Laravel's kernel turns the spoofed method back
+  into a `PUT` before routing. The OpenAPI spec documents `POST` with
+  `_method=POST`, which would 405 against these routes.
+- **`is_public` is sent as `1`/`0`.** Laravel's `boolean` rule accepts only
+  `true`, `false`, `0`, `1`, `'0'`, and `'1'` under strict comparison, so the
+  string `"true"` fails validation.
+- **Uploads are never retried**, even on a 429. An upload adds a document, so
+  it is not idempotent whatever its verb, and a replay after a lost response
+  would attach the file twice.
+
+The server enforces file type and size limits; a refusal comes back as a 422
+`Error::Api` with the per-field `errors` map. Files are held in memory while
+uploading.
+
 ## Other wrapped endpoints
 
 | Endpoint | Method |
@@ -166,14 +214,13 @@ that case the body is a short JSON message instead of CSV.
 
 ## Not covered
 
-### Blocked on a dependency change
+### Nothing is blocked on a dependency
 
-**Multipart uploads** — `PUT /{resource}/{id}/upload` exists for clients,
-companies, credits, expenses, group_settings, invoices, payments, products,
-projects, purchase_orders, quotes, recurring_expenses, recurring_invoices,
-recurring_quotes, tasks, and vendors. These need reqwest's `multipart`
-feature, which isn't currently enabled. This is the main reason `Document`
-has no `create_document`.
+Multipart uploads used to be, and are now wrapped — see [Document
+uploads](#document-uploads). One upload route is deliberately left out:
+`PUT /edocument/upload` is not a document attachment. It imports an expense
+from an e-document (`ExpenseController::edocument`), and is better treated as
+an import endpoint alongside the others under *Import/export* below.
 
 ### Resource groups not wrapped
 

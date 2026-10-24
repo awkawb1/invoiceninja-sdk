@@ -54,6 +54,14 @@ pub enum Error {
     #[error("`{0}` cannot be used as a url path segment")]
     InvalidPathSegment(String),
 
+    /// An upload was refused before any request was sent: no files, a file
+    /// with no name, or a MIME type that does not parse.
+    ///
+    /// Raised locally because the server would otherwise answer an empty
+    /// upload with a success that changed nothing.
+    #[error("invalid upload: {0}")]
+    InvalidUpload(String),
+
     /// A `list_all_*` call kept receiving full pages past the point where any
     /// plausible result set would have ended.
     ///

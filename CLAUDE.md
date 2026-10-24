@@ -161,6 +161,18 @@ changes, doc tweaks) does not need an entry.
   elsewhere without checking `routes/api.php`. In particular the official PHP
   SDK puts bulk `download` on *every* resource, which is wrong; only
   PDF-rendering entities support it.
+- `upload_methods!` generates `upload_{x}` for the 16 resources with a
+  `/{id}/upload` route; documents can only be created this way, because
+  `DocumentController::store` is an empty stub upstream (hence no
+  `create_document`). Three things are easy to get wrong, all verified
+  against the upstream source: the request is a **`POST` with
+  `_method=PUT`** (PHP does not parse multipart on a real `PUT`, and the
+  spec's `_method=POST` would 405); `is_public` goes out as **`1`/`0`**
+  (Laravel's strict `boolean` rule rejects the string `"true"`); and uploads
+  are **never retried**, because reqwest's multipart body is not cloneable
+  and `execute` gives an un-cloneable request exactly one attempt — a test
+  pins this, since nothing in the types would notice if it changed. Don't
+  "fix" any of the three.
 - Non-CRUD endpoints (documents, reports, charts, search, statics, emails,
   refunds, ping/health) are hand-written in the last `impl` block rather than
   macro-generated, because their request and response shapes are all
@@ -224,16 +236,16 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 265 methods: 30 resources with CRUD + bulk, 3 with CRUD
-only, 4 with entity actions, and 25 hand-written.
+(which isn't one). 284 methods: 30 resources with CRUD + bulk, 3 with CRUD
+only, 4 with entity actions, 16 with document uploads, and 28 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
 the four action-capable resources, `report`, `chart`, `search`, `statics`,
 `send_email`, `refund_payment`, `ping`, and `health_check`.
 
 **`COVERAGE.md` is the detailed inventory** — every wrapped endpoint, every
-gap, and the reason for each gap. The main remaining gaps are multipart
-uploads (needs a reqwest feature), a handful of per-resource extras
+gap, and the reason for each gap. The main remaining gaps are a handful of
+per-resource extras
 (`clients/{id}/purge`, `company_gateways/{id}/test`, …), and the
 integration/auth routes.
 

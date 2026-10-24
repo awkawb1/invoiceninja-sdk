@@ -100,7 +100,7 @@ IN_API_TOKEN=... cargo run --example list_clients
 
 ## Coverage
 
-Every one of the API's 34 resource groups, plus users — 265 methods. Each
+Every one of the API's 34 resource groups, plus users — 284 methods. Each
 resource has `list`, `list_all`, `get`, `create`, `update`, `delete`, and
 (where the API offers one) `bulk`:
 
@@ -158,15 +158,33 @@ let pdf: Vec<u8> = client.download_invoice("abc123").await?;
 let merged: Vec<u8> = client.download_invoices(&["abc123", "def456"]).await?;
 ```
 
-Reports return their raw export body (CSV for most of them), and the
-schemaless endpoints decode into any type you choose:
+Documents are attached through the record they belong to, since that is the
+only way the API creates one. Sixteen resources support it, as
+`upload_client`, `upload_invoice`, `upload_expense`, and so on:
+
+```rust
+use invoiceninjars::FileUpload;
+
+let receipt = FileUpload::new("receipt.pdf", std::fs::read("receipt.pdf")?)
+    .mime("application/pdf");
+
+// `Some(true)` makes the document visible to the client in the portal.
+let expense = client.upload_expense("abc123", vec![receipt], Some(false)).await?;
+```
+
+Files are held in memory while uploading, and an upload is never retried,
+since a replay after a lost response would attach the file twice.
+
+Reports return their raw export body (CSV for most of them). `statics`,
+`search`, and `health_check` return typed results; `chart` has no common
+response shape, so it decodes into any type you choose:
 
 ```rust
 use serde_json::{json, Value};
 
 let csv: Vec<u8> = client.report("invoices", &json!({"date_range": "this_year"})).await?;
 let totals: Value = client.chart("totals_v2", &json!({})).await?;
-let statics: Value = client.statics().await?;
+let statics = client.statics().await?;
 ```
 
 Add more resources by adding a model under `src/models/` and a

@@ -141,11 +141,16 @@ All 34 `Route::resource` groups are wrapped. Full coverage is the target, so
 `COVERAGE.md`'s gap list is a to-do list, not a permanent boundary. Roughly
 in order of value over effort:
 
-1. **Multipart uploads** — 16 `PUT /{resource}/{id}/upload` routes plus
-   `edocument/upload`. Blocked only on enabling reqwest's `multipart`
-   feature. This is also what makes `create_document` possible, so it
-   unblocks the one obviously missing piece of an otherwise complete
-   resource.
+**Done:** multipart document uploads, for the 16 resources that have the
+route (`upload_client`, `upload_invoice`, …). This earlier claimed it would
+also make `create_document` possible, which was wrong: upstream
+`DocumentController::store` is an empty stub, and an upload is the *only*
+way a document is created. There is no `create_document` and there will not
+be one. `edocument/upload` was left out because it imports an expense from
+an e-document rather than attaching a file, so it belongs with item 6.
+
+Still to do:
+
 2. **Per-resource extras** — mechanical, and they reuse existing patterns:
    `webhooks/{id}/retry`, `tasks/sort`, `designs/set/default`,
    `client_gateway_tokens/{id}/setAsDefault`, `subscriptions/steps`, the
@@ -159,9 +164,10 @@ in order of value over effort:
 5. **Public invitation-key downloads** — eight routes that take no auth
    token, so they do not fit the authenticated request path and need a
    different entry point.
-6. **Import/export and the integrations** — Stripe, QuickBooks, einvoice
-   (17 routes), Yodlee, Nordigen, calendar. The largest block and the least
-   SDK-shaped; worth doing last and possibly in pieces.
+6. **Import/export and the integrations** — `/import`, `/export`,
+   `edocument/upload`, Stripe, QuickBooks, einvoice (17 routes), Yodlee,
+   Nordigen, calendar. The largest block and the least SDK-shaped; worth
+   doing last and possibly in pieces.
 
 Keep `COVERAGE.md` current as these land — it names exact counts, so it goes
 stale quietly.
@@ -178,9 +184,12 @@ These are genuinely undecided. Deciding one is a change to this file.
   eleven chart endpoints share no response shape. Per-chart structs would
   be eleven small models of unstable payloads; unclear whether that earns
   its keep.
-- **Large responses are buffered entirely into memory.** PDF downloads and
-  CSV report exports go through `Vec<u8>`. Streaming would be better for
-  big exports but changes those signatures.
+- **Large bodies are buffered entirely into memory.** PDF downloads and CSV
+  report exports come back as `Vec<u8>`, and an uploaded `FileUpload` holds
+  its whole contents until the request finishes. Streaming would be better
+  for big files in both directions but changes those signatures — and for
+  uploads it would also change the retry story, which currently depends on
+  the multipart body being un-cloneable.
 - **`Error::PaginationLimit` has no test**, because reaching it needs
   10,001 mock round trips. Making `MAX_PAGES` injectable purely for a test
   may be worse than the gap.
