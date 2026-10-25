@@ -1,6 +1,6 @@
 [package]
 name = "invoiceninja-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 # Set by the dependency graph rather than by this crate's own code: reqwest
 # pulls in url -> idna -> idna_adapter -> icu_*, and the icu crates require
@@ -10,6 +10,10 @@ rust-version = "1.88"
 description = "An async Rust client for the Invoice Ninja v5 API"
 license = "MIT"
 repository = "https://github.com/awkawb1/invoiceninja-sdk"
+# Slugs checked against https://crates.io/api/v1/category_slugs — crates.io
+# rejects a publish with an unrecognised one, so these aren't freeform.
+categories = ["api-bindings", "web-programming::http-client", "asynchronous"]
+keywords = ["invoiceninja", "invoicing", "billing", "async", "sdk"]
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "multipart"] }
