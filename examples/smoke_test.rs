@@ -813,9 +813,14 @@ async fn password_checks(client: &InvoiceNinjaClient, report: &mut Report, passw
     }
 
     // A purge is permanent, so the record must now be gone, not just flagged.
+    // A missing record answers 400, not 404: the server maps Laravel's
+    // ModelNotFoundException to a 400 and keeps 404 for a missing route. The
+    // message is checked too, so a 400 raised for some other reason fails.
     match client.get_client(&keep).await {
-        Err(Error::Api { status, .. }) if status.as_u16() == 404 => {
-            report.pass("get_client after purge", "404, the row is gone")
+        Err(Error::Api { status, message, .. })
+            if status.as_u16() == 400 && message.contains("No query results") =>
+        {
+            report.pass("get_client after purge", "400 no query results, the row is gone")
         }
         Err(e) => report.fail("get_client after purge", describe(&e)),
         Ok(_) => report.fail("get_client after purge", "still readable after a purge"),

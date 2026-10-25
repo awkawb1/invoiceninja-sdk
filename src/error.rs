@@ -35,6 +35,15 @@ pub enum Error {
         excerpt: String,
     },
 
+    /// A non-2xx response: the server's message, plus any per-field
+    /// validation errors.
+    ///
+    /// **A missing record is `400`, not `404`.** Invoice Ninja's exception
+    /// handler maps Laravel's `ModelNotFoundException` to a 400 whose message
+    /// is `No query results for model [App\Models\Client].`, and reserves 404
+    /// for a route that does not exist or a method that route does not
+    /// support. Matching on 404 to mean "not found" will never fire — match
+    /// the status together with the message.
     #[error("api returned {status}: {message}")]
     Api {
         status: reqwest::StatusCode,

@@ -158,8 +158,9 @@ if a typed row lost a key (`keys kept: <resource>`, names only, never
 values), and the write tier creates a purchase order, location, webhook and
 recurring invoice from bare `Default` models, since those are what broke.
 With `IN_API_PASSWORD` set as well, a password tier merges two throwaway
-clients and purges the survivor (a real, permanent delete); it has not yet
-been run against an instance. `.github/workflows/smoke.yml` runs it on demand (`workflow_dispatch` only,
+clients and purges the survivor (a real, permanent delete); it was run
+against a disposable 5.13.50 instance on 2026-10-24 and all four checks
+pass. `.github/workflows/smoke.yml` runs it on demand (`workflow_dispatch` only,
 needing `IN_BASE_URL` and `IN_API_TOKEN` secrets); the write tier runs only if
 the `write_host` input names the instance's host.
 
@@ -311,6 +312,12 @@ changes, doc tweaks) does not need an entry.
   decode, API error responses (with per-field validation `errors` map), and
   client construction errors. `ApiErrorBody` mirrors Invoice Ninja's error
   JSON shape.
+- **A missing record is a `400`, not a `404`.** `Handler.php` maps Laravel's
+  `ModelNotFoundException` to a 400 carrying `No query results for model
+  [App\Models\X].`, and keeps 404 for a route that does not exist or a method
+  it does not support. So don't write a not-found check against 404 — the
+  smoke test's post-purge assertion did, and passed only because it had
+  never been run. Match the status together with the message.
 
 ## Coverage
 

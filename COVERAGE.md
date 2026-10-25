@@ -274,12 +274,12 @@ session through without the header). Most are **irreversible**, and all are
 | `POST /users/{id}/purge` | `purge_user` | `()` (the server answers 204) |
 | `GET /users/create` | `new_user_template` | a blank `User`, nothing stored |
 
-A merge keeps the first id and folds the second into it. These are verified
-against the upstream controllers and mock servers only: running them needs the
-account password, so the smoke test's optional password tier (merge two
-throwaway clients, purge the survivor) has not yet been run against a real
-instance. A password containing a control character cannot be a header value
-and goes out as `X-API-PASSWORD-BASE64` instead.
+A merge keeps the first id and folds the second into it. The smoke test's
+optional password tier (merge two throwaway clients, purge the survivor) was
+run against a disposable 5.13.50 instance on 2026-10-24 and passes; it also
+established that a purged record reads back as a **400**, not a 404. A
+password containing a control character cannot be a header value and goes out
+as `X-API-PASSWORD-BASE64` instead.
 
 ## Per-resource extras
 

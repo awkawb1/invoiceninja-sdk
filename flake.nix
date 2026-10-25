@@ -37,7 +37,10 @@
         msrvToolchain = toolchainFor msrvVersion [ ];
 
         shellFor = toolchain: pkgs.mkShell {
-          packages = [ toolchain pkgs.pkg-config pkgs.openssl ];
+          # jq is for the MSRV recheck in CLAUDE.md, which pipes `cargo
+          # metadata` through it; the rest is the toolchain plus what
+          # openssl-sys needs to link.
+          packages = [ toolchain pkgs.pkg-config pkgs.openssl pkgs.jq ];
           RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
       in
