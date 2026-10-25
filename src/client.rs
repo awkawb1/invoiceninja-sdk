@@ -6,12 +6,13 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::error::{ApiErrorBody, Error, Result};
 use crate::models::{
-    BankIntegration, BankTransaction, BankTransactionRule, BulkRequest, Client as ClientModel,
-    ClientGatewayToken, Company, CompanyGateway, CompanyToken, Credit, Design, Document, Expense,
-    ExpenseCategory, GroupSetting, HealthCheck, Invoice, ItemResponse, ListParams, ListResponse,
-    Location, Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote, RecurringExpense,
-    RecurringInvoice, RecurringQuote, SearchResults, Statics, Subscription, SystemLog, Tag, Task,
-    TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
+    Activity, ActivityFeedEntry, BankIntegration, BankTransaction, BankTransactionRule,
+    BulkRequest, Client as ClientModel, ClientGatewayToken, Company, CompanyGateway, CompanyToken,
+    Credit, Design, Document, Expense, ExpenseCategory, GroupSetting, HealthCheck, Invoice,
+    ItemResponse, ListParams, ListResponse, Location, MessageResponse, Payment, PaymentTerm,
+    Product, Project, PurchaseOrder, Quote, RecurringExpense, RecurringInvoice, RecurringQuote,
+    SearchResults, Statics, Subscription, SubscriptionStep, SystemLog, Tag, Task, TaskScheduler,
+    TaskStatus, TaxRate, User, Vendor, Webhook,
 };
 use crate::retry::{self, RetryPolicy};
 use crate::upload::FileUpload;
@@ -61,6 +62,28 @@ fn seg(value: &str) -> Result<impl std::fmt::Display + '_> {
     Ok(utf8_percent_encode(value, PATH_SEGMENT))
 }
 
+/// Standard base64 with padding. Only used for the one header that needs it,
+/// which is not worth a dependency.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | (*b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// Renders the start of a response body for an error message.
 ///
 /// Collapsed to one line and truncated, so a stray HTML error page or a
@@ -102,9 +125,9 @@ fn excerpt(bytes: &[u8]) -> String {
 pub struct InvoiceNinjaClient {
     http: reqwest::Client,
     base_url: String,
-    /// Marked sensitive, so it renders as `Sensitive` rather than the value
-    /// in the derived `Debug`.
-    api_password: Option<header::HeaderValue>,
+    /// The header to send it under, and its value. Marked sensitive, so it
+    /// renders as `Sensitive` rather than the value in the derived `Debug`.
+    api_password: Option<(&'static str, header::HeaderValue)>,
     timeout: Duration,
     retry: RetryPolicy,
 }
@@ -185,7 +208,14 @@ impl InvoiceNinjaClient {
     /// middleware and reject requests without the account password, even
     /// when the token is valid: reading or writing an individual user,
     /// `/users/bulk`, purging a client or company, and merging clients.
-    /// Without this, those calls fail rather than returning data.
+    /// Without this, those calls fail rather than returning data. (The
+    /// server also lets a recent password-authenticated session through
+    /// without the header, so an omitted password is not always refused.)
+    ///
+    /// A password that fits a header value is sent as `X-API-PASSWORD`. One
+    /// that does not (it contains a control character such as a newline) is
+    /// sent as `X-API-PASSWORD-BASE64`, which the server's middleware decodes.
+    /// It used to be refused locally with a misleading `InvalidToken`.
     ///
     /// ```no_run
     /// # fn main() -> invoiceninjars::Result<()> {
@@ -197,10 +227,17 @@ impl InvoiceNinjaClient {
     /// # }
     /// ```
     pub fn with_api_password(mut self, password: impl Into<String>) -> Result<Self> {
-        let mut value = header::HeaderValue::from_str(&password.into())
-            .map_err(|e| Error::InvalidToken(e.to_string()))?;
+        let password = password.into();
+        let (name, mut value) = match header::HeaderValue::from_str(&password) {
+            Ok(value) => ("X-API-PASSWORD", value),
+            Err(_) => (
+                "X-API-PASSWORD-BASE64",
+                header::HeaderValue::from_str(&base64(password.as_bytes()))
+                    .expect("base64 output is always a valid header value"),
+            ),
+        };
         value.set_sensitive(true);
-        self.api_password = Some(value);
+        self.api_password = Some((name, value));
         Ok(self)
     }
 
@@ -212,7 +249,7 @@ impl InvoiceNinjaClient {
             .request(method, self.url(path))
             .timeout(self.timeout);
         match &self.api_password {
-            Some(password) => builder.header("X-API-PASSWORD", password.clone()),
+            Some((name, password)) => builder.header(*name, password.clone()),
             None => builder,
         }
     }
@@ -595,6 +632,10 @@ impl InvoiceNinjaClient {
     /// Issues a request whose body is discarded, failing on non-2xx.
     async fn get_discard(&self, path: &str) -> Result<()> {
         self.get_raw(path).await.map(|_| ())
+    }
+
+    async fn post_discard<B: Serialize>(&self, path: &str, payload: &B) -> Result<()> {
+        self.post_raw(path, payload).await.map(|_| ())
     }
 }
 
@@ -1417,5 +1458,452 @@ impl InvoiceNinjaClient {
     pub async fn bulk_users(&self, action: &str, ids: &[impl AsRef<str>]) -> Result<Vec<User>> {
         self.post_list("users/bulk", &BulkRequest::new(action, ids))
             .await
+    }
+}
+
+/// Per-resource routes that sit beside the CRUD set. Each answers with its
+/// own shape (checked against the upstream controllers), so none of them is
+/// macro-generated.
+///
+/// All are `POST` unless noted, so none is retried on a 5xx or a timeout.
+/// Several are no-body triggers; they send `{}` rather than an empty body.
+impl InvoiceNinjaClient {
+    // --- webhooks, tasks, designs ---------------------------------------
+
+    /// Re-sends a webhook for one entity. `body` takes `entity` (e.g.
+    /// `invoice`) and `entity_id`. Answers with the webhook itself, not the
+    /// delivery result.
+    pub async fn retry_webhook<B: Serialize>(&self, id: &str, body: &B) -> Result<Webhook> {
+        self.post_one(&format!("webhooks/{}/retry", seg(id)?), body)
+            .await
+    }
+
+    /// Reorders task-board columns and the tasks in them. `body` takes
+    /// `status_ids` (task status ids, in order) and `task_ids` (a map from
+    /// task status id to the ordered task ids in that column).
+    pub async fn sort_tasks<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("tasks/sort", body).await
+    }
+
+    /// Makes a design the default for an entity. `body` takes `design_id`
+    /// and `entity`, and optionally `settings_level` (`company`,
+    /// `group_settings`, or `client`) with the matching `group_settings_id`
+    /// or `client_id`.
+    pub async fn set_default_design<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("designs/set/default", body).await
+    }
+
+    // --- client gateway tokens ------------------------------------------
+
+    /// Makes a stored payment method the client's default.
+    pub async fn set_default_client_gateway_token(&self, id: &str) -> Result<ClientGatewayToken> {
+        self.post_one(
+            &format!("client_gateway_tokens/{}/setAsDefault", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    // --- subscriptions --------------------------------------------------
+
+    /// The steps of the purchase flow and what each depends on.
+    ///
+    /// There is no `data` wrapper. The server sends a JSON object keyed by
+    /// the PHP class behind each step (the controller's `collect()` keeps
+    /// those keys), though the upstream source reads as if it were a list.
+    /// Both shapes decode here; the keys are dropped, since each step's `id`
+    /// says the same thing, and the order of the result is not meaningful.
+    pub async fn subscription_steps(&self) -> Result<Vec<SubscriptionStep>> {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Steps {
+            List(Vec<SubscriptionStep>),
+            Keyed(std::collections::BTreeMap<String, SubscriptionStep>),
+        }
+
+        Ok(match self.get_unwrapped("subscriptions/steps").await? {
+            Steps::List(steps) => steps,
+            Steps::Keyed(steps) => steps.into_values().collect(),
+        })
+    }
+
+    /// Validates a proposed `steps` list against the dependency rules.
+    /// Succeeds on a valid list; an invalid one is a 422
+    /// ([`Error::Api`]) carrying the reason.
+    pub async fn check_subscription_steps<B: Serialize>(&self, body: &B) -> Result<()> {
+        self.post_discard("subscriptions/steps/check", body).await
+    }
+
+    // --- company gateways -----------------------------------------------
+
+    /// Asks the gateway to verify its credentials. The outcome is in the
+    /// returned message; a failed check is still an HTTP 200.
+    pub async fn test_company_gateway(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("company_gateways/{}/test", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Duplicates a company gateway, returning the copy.
+    pub async fn clone_company_gateway(&self, id: &str) -> Result<CompanyGateway> {
+        self.post_one(
+            &format!("company_gateways/{}/clone", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Starts importing the gateway's customers as clients. The import runs
+    /// in the background; the message only confirms it was queued.
+    pub async fn import_company_gateway_customers(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("company_gateways/{}/import_customers", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    // --- bank integrations and transactions -----------------------------
+
+    /// Asks the server to refresh every linked bank account. The response
+    /// body is a serialised query builder with no usable content, so it is
+    /// discarded; list the integrations afterwards to see the result.
+    /// Throttled to 30 calls a minute.
+    pub async fn refresh_bank_accounts(&self) -> Result<()> {
+        self.post_discard("bank_integrations/refresh_accounts", &serde_json::json!({}))
+            .await
+    }
+
+    /// Disconnects a bank account, returning the updated integration.
+    /// `account_id` is the provider's account id, not the integration's.
+    pub async fn remove_bank_account(&self, account_id: &str) -> Result<BankIntegration> {
+        self.post_one(
+            &format!("bank_integrations/remove_account/{}", seg(account_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Starts fetching transactions for every auto-sync integration. Despite
+    /// the `account_id` in the route, the server ignores it. Throttled to one
+    /// call a minute.
+    pub async fn fetch_bank_transactions(&self, account_id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("bank_integrations/get_transactions/{}", seg(account_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Matches bank transactions to invoices, payments, or expenses. `body`
+    /// takes a `transactions` array; the matched transactions come back.
+    pub async fn match_bank_transactions<B: Serialize>(
+        &self,
+        body: &B,
+    ) -> Result<Vec<BankTransaction>> {
+        self.post_list("bank_transactions/match", body).await
+    }
+
+    // --- client extras --------------------------------------------------
+
+    /// Re-fetches the client's tax data from the tax provider. Throttled to
+    /// 10 calls a minute.
+    pub async fn update_client_tax_data(&self, id: &str) -> Result<ClientModel> {
+        self.post_one(
+            &format!("clients/{}/updateTaxData", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// The client's effective settings, each tagged with the level it came
+    /// from. Left as raw JSON: the map's keys are the settings themselves.
+    pub async fn client_show_settings(&self, id: &str) -> Result<serde_json::Value> {
+        self.post_unwrapped(
+            &format!("clients/{}/show_settings", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Looks the client up on the Peppol network. Left as raw JSON: the
+    /// controller returns whatever the discovery service produced.
+    pub async fn client_peppol_discovery(&self, id: &str) -> Result<serde_json::Value> {
+        self.post_unwrapped(
+            &format!("clients/{}/peppol_discovery", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Validates the client's VAT number. Updates the client's VAT status as
+    /// a side effect.
+    pub async fn check_client_vat(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("clients/{}/check_vat", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// The client's VAT validation status. A `GET`, and the only read-only
+    /// method in this block.
+    pub async fn client_vat_status(&self, id: &str) -> Result<MessageResponse> {
+        self.get_unwrapped(&format!("clients/{}/vat_status", seg(id)?))
+            .await
+    }
+
+    /// Every document attached to the client or to its invoices, quotes,
+    /// credits, expenses, payments, tasks, recurring invoices, recurring
+    /// expenses, and projects. `body` takes `filter` (a name substring) and
+    /// `sort` (`column|asc` or `column|desc`). Returns one page.
+    pub async fn client_documents<B: Serialize>(
+        &self,
+        id: &str,
+        body: &B,
+    ) -> Result<Vec<Document>> {
+        self.post_list(&format!("clients/{}/documents", seg(id)?), body)
+            .await
+    }
+}
+
+/// Destructive actions behind the API's `password_protected` middleware.
+///
+/// Every method here needs
+/// [`with_api_password`](InvoiceNinjaClient::with_api_password); without it
+/// the server normally refuses the request. Most are **irreversible**: a purge
+/// force-deletes rows rather than archiving them, and a merge removes one of
+/// the two records.
+///
+/// All are `POST`s, so none is retried on a 5xx or a timeout. That matters
+/// most here: replaying a merge after a lost response could act on a record
+/// that no longer exists.
+impl InvoiceNinjaClient {
+    /// Permanently deletes a client and its documents. Unlike
+    /// [`delete_client`](Self::delete_client), which soft-deletes, this cannot
+    /// be undone.
+    pub async fn purge_client(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("clients/{}/purge", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Merges `mergeable_id` into `id`, returning the client that is kept.
+    ///
+    /// The route is `clients/{id}/{mergeable_id}/merge` and the controller
+    /// calls `merge` on the first, so `id` is the survivor. Merging a client
+    /// into itself, or naming one that does not exist, is a 400.
+    pub async fn merge_clients(&self, id: &str, mergeable_id: &str) -> Result<ClientModel> {
+        self.post_one(
+            &format!("clients/{}/{}/merge", seg(id)?, seg(mergeable_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Merges `mergeable_id` into `id`, returning the vendor that is kept.
+    /// Same semantics as [`merge_clients`](Self::merge_clients).
+    pub async fn merge_vendors(&self, id: &str, mergeable_id: &str) -> Result<Vendor> {
+        self.post_one(
+            &format!("vendors/{}/{}/merge", seg(id)?, seg(mergeable_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Deletes a company. The hosted app refuses to purge its default
+    /// company with a 400.
+    pub async fn purge_company(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("companies/purge/{}", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Force-deletes a company's clients, products, projects, tasks, vendors,
+    /// expenses, purchase orders, bank transactions and activity, and resets
+    /// its number counters. The company, its settings, and its invoices
+    /// remain as the server leaves them.
+    pub async fn purge_company_save_settings(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("companies/purge_save_settings/{}", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Re-sends a user's invitation email.
+    pub async fn invite_user(&self, id: &str) -> Result<MessageResponse> {
+        self.post_unwrapped(
+            &format!("users/{}/invite", seg(id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Permanently deletes a user. Only the account owner may, and not
+    /// themselves. The server answers 204 with no body.
+    pub async fn purge_user(&self, id: &str) -> Result<()> {
+        self.post_discard(&format!("users/{}/purge", seg(id)?), &serde_json::json!({}))
+            .await
+    }
+
+    /// A blank user as the server would create it, for filling in and
+    /// passing to [`create_user`](Self::create_user). Nothing is stored.
+    pub async fn new_user_template(&self) -> Result<User> {
+        self.get_one("users/create").await
+    }
+}
+
+/// Activity log, email history, and document previews. Each has a response
+/// shape of its own (read from the upstream controllers, and for the activity
+/// routes confirmed against a 5.13.50 server), so none is macro-generated.
+impl InvoiceNinjaClient {
+    // --- activities -----------------------------------------------------
+
+    /// One page of the activity log, newest first.
+    ///
+    /// The server takes its row limit from a `rows` parameter (default 75)
+    /// rather than `per_page`, though it paginates the result as well; use
+    /// [`ListParams::param`] to pass `rows`.
+    pub async fn list_activities(&self, params: &ListParams) -> Result<Vec<Activity>> {
+        self.get_list("activities", params).await
+    }
+
+    pub async fn list_all_activities(&self, params: &ListParams) -> Result<Vec<Activity>> {
+        self.get_all_pages("activities", params).await
+    }
+
+    /// The activity log as the web app shows it: each entry's records are
+    /// resolved into labelled references, newest first. Non-admins see only
+    /// their own activity. `rows` defaults to 75 on the server.
+    pub async fn activity_feed(&self, rows: Option<u32>) -> Result<Vec<ActivityFeedEntry>> {
+        let mut params = ListParams::new().param("reactv2", "1");
+        if let Some(rows) = rows {
+            params = params.param("rows", rows.to_string());
+        }
+        self.get_list("activities", &params).await
+    }
+
+    /// The feed for one record. `entity` is the **singular** name (`invoice`,
+    /// `quote`, `credit`, `purchase_order`, `payment`, `client`, `vendor`,
+    /// `expense`, `task`, `project`, `subscription`, `recurring_invoice`).
+    /// Contrast [`add_activity_note`](Self::add_activity_note), which wants
+    /// the plural.
+    pub async fn entity_activity(
+        &self,
+        entity: &str,
+        entity_id: &str,
+        rows: Option<u32>,
+    ) -> Result<Vec<ActivityFeedEntry>> {
+        let mut body = serde_json::json!({ "entity": entity, "entity_id": entity_id });
+        // Left out rather than sent as null: the server tests for the key's
+        // presence, so a null `rows` would count as given and remove the cap.
+        if let Some(rows) = rows {
+            body["rows"] = rows.into();
+        }
+        self.post_list("activities/entity", &body).await
+    }
+
+    /// Adds a note to a record's history. `entity` is the **plural** table
+    /// name (`invoices`, `quotes`, `credits`, `recurring_invoices`,
+    /// `clients`, `vendors`, `payments`, `projects`, `tasks`, `expenses`,
+    /// `recurring_expenses`, `bank_transactions`, `purchase_orders`), unlike
+    /// [`entity_activity`](Self::entity_activity).
+    ///
+    /// Not idempotent: each call adds another note, so it is not retried on a
+    /// 5xx.
+    pub async fn add_activity_note(
+        &self,
+        entity: &str,
+        entity_id: &str,
+        notes: &str,
+    ) -> Result<Activity> {
+        self.post_one(
+            "activities/notes",
+            &serde_json::json!({ "entity": entity, "entity_id": entity_id, "notes": notes }),
+        )
+        .await
+    }
+
+    /// The PDF of an invoice, quote or credit as it was when the activity was
+    /// recorded. A 404 means that activity kept no backup.
+    pub async fn download_activity_entity(&self, activity_id: &str) -> Result<Vec<u8>> {
+        self.get_raw(&format!("activities/download_entity/{}", seg(activity_id)?))
+            .await
+    }
+
+    // --- email history --------------------------------------------------
+
+    /// The client's email delivery history, newest first: one object per sent
+    /// message that has delivery events. Left as raw JSON, since the objects
+    /// mirror whatever the mail provider reported and no instance available
+    /// here had sent mail to take a shape from.
+    pub async fn client_email_history(&self, client_id: &str) -> Result<Vec<serde_json::Value>> {
+        self.post_unwrapped(
+            &format!("emails/clientHistory/{}", seg(client_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Email delivery history for one record. `entity` is `invoice`, `quote`,
+    /// `credit`, `recurring_invoice`, or `purchase_order`. Raw JSON, as for
+    /// [`client_email_history`](Self::client_email_history).
+    pub async fn entity_email_history(
+        &self,
+        entity: &str,
+        entity_id: &str,
+    ) -> Result<Vec<serde_json::Value>> {
+        self.post_unwrapped(
+            "emails/entityHistory",
+            &serde_json::json!({ "entity": entity, "entity_id": entity_id }),
+        )
+        .await
+    }
+
+    // --- previews -------------------------------------------------------
+    //
+    // These render a document without saving it and answer with a PDF, so
+    // they return the bytes. `body` is the entity to render plus, for the
+    // design routes, the `design` object.
+
+    /// Renders a preview of an existing record or of an unsaved design.
+    /// Takes `entity`, `entity_id` (`-1` for a mock record) and `design`.
+    pub async fn preview<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
+        self.post_raw("preview", body).await
+    }
+
+    /// [`preview`](Self::preview) as the HTML the PDF is made from.
+    pub async fn preview_html<B: Serialize>(&self, body: &B) -> Result<String> {
+        let bytes = self.post_raw("preview?html=true", body).await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Renders an unsaved invoice, quote, credit or recurring invoice as a
+    /// PDF: the body is the entity's own fields, plus `entity` and
+    /// `entity_id`.
+    pub async fn live_preview<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
+        self.post_raw("live_preview", body).await
+    }
+
+    /// Renders a design against mock data, for editing it.
+    pub async fn live_design<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
+        self.post_raw("live_design", body).await
+    }
+
+    /// [`preview`](Self::preview) for a purchase order.
+    pub async fn preview_purchase_order<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
+        self.post_raw("preview/purchase_order", body).await
+    }
+
+    /// [`live_preview`](Self::live_preview) for a purchase order.
+    pub async fn live_preview_purchase_order<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
+        self.post_raw("live_preview/purchase_order", body).await
     }
 }

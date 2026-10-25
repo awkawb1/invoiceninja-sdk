@@ -1475,3 +1475,749 @@ async fn transport_errors_say_why_the_request_failed() {
         "the cause should appear in the message, got: {rendered}"
     );
 }
+
+// --- per-resource extras ------------------------------------------------
+
+/// Mounts one route answering 200 with `body`, and returns the server.
+async fn route_server(verb: &str, route: &str, body: serde_json::Value) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method(verb))
+        .and(path(route))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Generates one test per extra. Each mounts the route the upstream router
+/// registers, calls the method, and checks it decoded the shape the
+/// controller returns. `route_server` expects exactly one request, so a call
+/// that hit a different path or verb fails when the server drops.
+macro_rules! extra_test {
+    ($name:ident, $verb:literal, $route:literal, $response:expr,
+     |$c:ident| $call:expr, |$got:ident| $check:expr) => {
+        #[tokio::test]
+        async fn $name() {
+            let server = route_server($verb, $route, $response).await;
+            let $c = client(&server);
+            let $got = $call.await.expect("the extra should succeed");
+            $check;
+        }
+    };
+}
+
+fn message() -> serde_json::Value {
+    json!({ "message": "ok" })
+}
+
+fn entity() -> serde_json::Value {
+    json!({ "data": { "id": "abc" } })
+}
+
+extra_test!(
+    retry_webhook_posts_to_retry_and_returns_the_webhook,
+    "POST",
+    "/webhooks/abc/retry",
+    entity(),
+    |c| c.retry_webhook("abc", &json!({ "entity": "invoice", "entity_id": "i1" })),
+    |hook| assert_eq!(hook.id.as_deref(), Some("abc"))
+);
+
+extra_test!(
+    sort_tasks_returns_the_message,
+    "POST",
+    "/tasks/sort",
+    message(),
+    |c| c.sort_tasks(&json!({ "status_ids": ["s1"], "task_ids": { "s1": ["t1"] } })),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    set_default_design_returns_the_message,
+    "POST",
+    "/designs/set/default",
+    message(),
+    |c| c.set_default_design(&json!({ "design_id": "d1", "entity": "invoice" })),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    set_default_client_gateway_token_returns_the_token,
+    "POST",
+    "/client_gateway_tokens/abc/setAsDefault",
+    json!({ "data": { "id": "abc", "is_default": true } }),
+    |c| c.set_default_client_gateway_token("abc"),
+    |token| assert!(token.is_default)
+);
+
+extra_test!(
+    test_company_gateway_returns_the_message,
+    "POST",
+    "/company_gateways/abc/test",
+    message(),
+    |c| c.test_company_gateway("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    clone_company_gateway_returns_the_copy,
+    "POST",
+    "/company_gateways/abc/clone",
+    entity(),
+    |c| c.clone_company_gateway("abc"),
+    |copy| assert_eq!(copy.id.as_deref(), Some("abc"))
+);
+
+extra_test!(
+    import_company_gateway_customers_returns_the_message,
+    "POST",
+    "/company_gateways/abc/import_customers",
+    message(),
+    |c| c.import_company_gateway_customers("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    remove_bank_account_returns_the_integration,
+    "POST",
+    "/bank_integrations/remove_account/acc1",
+    entity(),
+    |c| c.remove_bank_account("acc1"),
+    |got| assert_eq!(got.id.as_deref(), Some("abc"))
+);
+
+extra_test!(
+    fetch_bank_transactions_returns_the_message,
+    "POST",
+    "/bank_integrations/get_transactions/acc1",
+    message(),
+    |c| c.fetch_bank_transactions("acc1"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    match_bank_transactions_returns_the_matched_rows,
+    "POST",
+    "/bank_transactions/match",
+    json!({ "data": [{ "id": "bt1" }] }),
+    |c| c.match_bank_transactions(&json!({ "transactions": [] })),
+    |got| assert_eq!(got.len(), 1)
+);
+
+extra_test!(
+    update_client_tax_data_returns_the_client,
+    "POST",
+    "/clients/abc/updateTaxData",
+    entity(),
+    |c| c.update_client_tax_data("abc"),
+    |got| assert_eq!(got.id.as_deref(), Some("abc"))
+);
+
+extra_test!(
+    client_show_settings_returns_raw_json,
+    "POST",
+    "/clients/abc/show_settings",
+    json!({ "currency_id": "1" }),
+    |c| c.client_show_settings("abc"),
+    |got| assert_eq!(got["currency_id"], "1")
+);
+
+extra_test!(
+    client_peppol_discovery_returns_raw_json,
+    "POST",
+    "/clients/abc/peppol_discovery",
+    json!({ "found": false }),
+    |c| c.client_peppol_discovery("abc"),
+    |got| assert_eq!(got["found"], false)
+);
+
+extra_test!(
+    check_client_vat_returns_the_message,
+    "POST",
+    "/clients/abc/check_vat",
+    message(),
+    |c| c.check_client_vat("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    client_vat_status_is_a_get,
+    "GET",
+    "/clients/abc/vat_status",
+    message(),
+    |c| c.client_vat_status("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    client_documents_returns_one_page_of_documents,
+    "POST",
+    "/clients/abc/documents",
+    json!({ "data": [{ "id": "d1" }] }),
+    |c| c.client_documents("abc", &json!({ "filter": "x" })),
+    |got| assert_eq!(got.len(), 1)
+);
+
+/// The body a caller passes must reach the server, not just the route.
+#[tokio::test]
+async fn retry_webhook_sends_the_callers_body() {
+    let server = route_server("POST", "/webhooks/abc/retry", entity()).await;
+    client(&server)
+        .retry_webhook("abc", &json!({ "entity": "invoice", "entity_id": "i1" }))
+        .await
+        .unwrap();
+
+    let sent: serde_json::Value = server.received_requests().await.unwrap()[0]
+        .body_json()
+        .unwrap();
+    assert_eq!(sent, json!({ "entity": "invoice", "entity_id": "i1" }));
+}
+
+/// The no-body triggers send `{}` with a JSON content type rather than an
+/// empty body, which is what Laravel's request parsing is happy with.
+#[tokio::test]
+async fn no_body_triggers_send_an_empty_json_object() {
+    let server = route_server("POST", "/company_gateways/abc/test", message()).await;
+    client(&server).test_company_gateway("abc").await.unwrap();
+
+    let request = &server.received_requests().await.unwrap()[0];
+    assert_eq!(request.body_json::<serde_json::Value>().unwrap(), json!({}));
+    assert_eq!(
+        request.headers.get("content-type").unwrap(),
+        "application/json"
+    );
+}
+
+#[tokio::test]
+async fn subscription_steps_decode_a_list_or_a_keyed_object_and_check_discards_the_body() {
+    let s = route_server(
+        "GET",
+        "/subscriptions/steps",
+        json!([
+            { "id": "auth.login-or-register", "dependencies": [] },
+            { "id": "payment_method", "dependencies": ["auth.login-or-register"] }
+        ]),
+    )
+    .await;
+    let steps = client(&s).subscription_steps().await.unwrap();
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[1].dependencies, ["auth.login-or-register"]);
+
+    // What a real 5.13.50 server sends: an object keyed by PHP class name.
+    let s = route_server(
+        "GET",
+        "/subscriptions/steps",
+        json!({
+            "App\\Livewire\\Login": { "id": "auth.login", "dependencies": [] },
+            "App\\Livewire\\Pay": { "id": "payment_method", "dependencies": ["auth.login"] }
+        }),
+    )
+    .await;
+    let mut steps = client(&s).subscription_steps().await.unwrap();
+    steps.sort_by(|a, b| a.id.cmp(&b.id));
+    assert_eq!(steps[0].id, "auth.login");
+    assert_eq!(steps[1].dependencies, ["auth.login"]);
+
+    let s = route_server("POST", "/subscriptions/steps/check", json!([])).await;
+    client(&s)
+        .check_subscription_steps(&json!({ "steps": "a,b" }))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn refresh_bank_accounts_ignores_the_meaningless_body() {
+    let s = route_server("POST", "/bank_integrations/refresh_accounts", json!({})).await;
+    client(&s).refresh_bank_accounts().await.unwrap();
+}
+
+#[tokio::test]
+async fn extras_validate_ids_and_surface_errors() {
+    let server = MockServer::start().await;
+    let c = client(&server);
+
+    // A `/` in an id stays inside one segment instead of retargeting the call.
+    let _ = c.check_client_vat("a/b").await;
+    let seen = server.received_requests().await.unwrap();
+    assert_eq!(seen[0].url.path(), "/clients/a%2Fb/check_vat");
+
+    assert!(matches!(
+        c.check_client_vat("..").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+    assert!(matches!(
+        c.remove_bank_account("").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+    assert!(matches!(
+        c.test_company_gateway("..").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+
+    Mock::given(method("POST"))
+        .and(path("/subscriptions/steps/check"))
+        .respond_with(ResponseTemplate::new(422).set_body_json(json!({
+            "message": "invalid",
+            "errors": { "steps": ["bad order"] }
+        })))
+        .mount(&server)
+        .await;
+    let err = c
+        .check_subscription_steps(&json!({ "steps": "b,a" }))
+        .await
+        .expect_err("an invalid step list is a 422");
+    assert!(
+        matches!(err, Error::Api { status, .. } if status == 422),
+        "{err:?}"
+    );
+}
+
+/// These are all `POST`s, and some start work on the server, so a 5xx must
+/// not be replayed.
+#[tokio::test]
+async fn extras_are_not_replayed_on_5xx() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/company_gateways/abc/import_customers"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .with_retry_policy(quick_retry())
+        .import_company_gateway_customers("abc")
+        .await
+        .expect_err("a failed trigger must not be retried");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+// --- password-protected actions -----------------------------------------
+
+extra_test!(
+    purge_client_returns_the_message,
+    "POST",
+    "/clients/abc/purge",
+    message(),
+    |c| c.purge_client("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    merge_clients_names_the_survivor_first_and_returns_it,
+    "POST",
+    "/clients/keep/drop/merge",
+    json!({ "data": { "id": "keep" } }),
+    |c| c.merge_clients("keep", "drop"),
+    |got| assert_eq!(got.id.as_deref(), Some("keep"))
+);
+
+extra_test!(
+    merge_vendors_names_the_survivor_first_and_returns_it,
+    "POST",
+    "/vendors/keep/drop/merge",
+    json!({ "data": { "id": "keep" } }),
+    |c| c.merge_vendors("keep", "drop"),
+    |got| assert_eq!(got.id.as_deref(), Some("keep"))
+);
+
+extra_test!(
+    purge_company_returns_the_message,
+    "POST",
+    "/companies/purge/abc",
+    message(),
+    |c| c.purge_company("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    purge_company_save_settings_returns_the_message,
+    "POST",
+    "/companies/purge_save_settings/abc",
+    message(),
+    |c| c.purge_company_save_settings("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    invite_user_returns_the_message,
+    "POST",
+    "/users/abc/invite",
+    message(),
+    |c| c.invite_user("abc"),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    new_user_template_is_a_get_returning_a_blank_user,
+    "GET",
+    "/users/create",
+    entity(),
+    |c| c.new_user_template(),
+    |got| assert_eq!(got.id.as_deref(), Some("abc"))
+);
+
+/// User purge answers 204 with no body, which must not be treated as a decode
+/// failure.
+#[tokio::test]
+async fn purge_user_accepts_an_empty_204() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/users/abc/purge"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client(&server).purge_user("abc").await.unwrap();
+}
+
+/// Both ids in a merge go through the same path protection, so neither can
+/// retarget the request.
+#[tokio::test]
+async fn merge_validates_both_ids() {
+    let server = MockServer::start().await;
+    let c = client(&server);
+
+    assert!(matches!(
+        c.merge_clients("..", "x").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+    assert!(matches!(
+        c.merge_clients("x", "").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+    assert!(matches!(
+        c.merge_vendors("x", "..").await,
+        Err(Error::InvalidPathSegment(_))
+    ));
+
+    let _ = c.merge_clients("a/b", "c?d").await;
+    let seen = server.received_requests().await.unwrap();
+    assert_eq!(seen.len(), 1, "only the escaped call may reach the server");
+    assert_eq!(seen[0].url.path(), "/clients/a%2Fb/c%3Fd/merge");
+}
+
+/// A destructive POST that may have been applied must never be replayed.
+#[tokio::test]
+async fn destructive_actions_are_not_replayed_on_5xx() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let c = client(&server).with_retry_policy(quick_retry());
+
+    c.purge_client("abc").await.expect_err("500");
+    c.merge_clients("a", "b").await.expect_err("500");
+    c.purge_company("abc").await.expect_err("500");
+    c.purge_user("abc").await.expect_err("500");
+    assert_eq!(server.received_requests().await.unwrap().len(), 4);
+}
+
+/// The password reaches the server on these routes, and without one the
+/// header is simply absent.
+#[tokio::test]
+async fn the_api_password_is_sent_on_protected_actions() {
+    let server = route_server("POST", "/clients/abc/purge", message()).await;
+    client(&server)
+        .with_api_password("hunter2")
+        .unwrap()
+        .purge_client("abc")
+        .await
+        .unwrap();
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(sent.headers.get("X-API-PASSWORD").unwrap(), "hunter2");
+    assert!(sent.headers.get("X-API-PASSWORD-BASE64").is_none());
+}
+
+/// A password with a control character cannot be a header value. It used to be
+/// rejected with a misleading `InvalidToken`; it now goes out base64 encoded,
+/// under the header the server's middleware decodes. The cases cover each
+/// padding form (`==`, `=`, none).
+#[tokio::test]
+async fn a_password_with_a_control_character_goes_out_base64_encoded() {
+    for (password, expected) in [("\n", "Cg=="), ("a\n", "YQo="), ("a\nb", "YQpi")] {
+        let server = route_server("POST", "/clients/abc/purge", message()).await;
+        client(&server)
+            .with_api_password(password)
+            .expect("any password is accepted")
+            .purge_client("abc")
+            .await
+            .unwrap();
+
+        let sent = &server.received_requests().await.unwrap()[0];
+        assert_eq!(
+            sent.headers.get("X-API-PASSWORD-BASE64").unwrap(),
+            expected,
+            "password {password:?}"
+        );
+        assert!(
+            sent.headers.get("X-API-PASSWORD").is_none(),
+            "the plain header must not also be sent"
+        );
+    }
+}
+
+/// Non-ASCII text is a valid header value, so those passwords keep going out
+/// as `X-API-PASSWORD` exactly as before.
+#[tokio::test]
+async fn a_non_ascii_password_still_goes_out_as_the_plain_header() {
+    let server = route_server("POST", "/clients/abc/purge", message()).await;
+    client(&server)
+        .with_api_password("pässwörd")
+        .unwrap()
+        .purge_client("abc")
+        .await
+        .unwrap();
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(
+        sent.headers.get("X-API-PASSWORD").unwrap().as_bytes(),
+        "pässwörd".as_bytes()
+    );
+    assert!(sent.headers.get("X-API-PASSWORD-BASE64").is_none());
+}
+
+/// The base64 fallback is as secret as the password itself, so it must be
+/// redacted from `Debug` too.
+#[tokio::test]
+async fn debug_output_redacts_a_base64_password_too() {
+    let c = InvoiceNinjaClient::new("http://localhost/api/v1", "tok")
+        .unwrap()
+        .with_api_password("S3CRETpw\nX")
+        .unwrap();
+    let shown = format!("{c:?}");
+    assert!(!shown.contains("S3CRET"), "{shown}");
+    assert!(!shown.contains("UzNDUkVUcHcK"), "{shown}");
+    assert!(shown.contains("Sensitive"), "{shown}");
+}
+
+// --- activities, email history, previews --------------------------------
+
+extra_test!(
+    list_activities_decodes_the_transformer_shape,
+    "GET",
+    "/activities",
+    json!({ "data": [{
+        "id": "a1", "activity_type_id": "10", "client_id": "c1", "invoice_id": "",
+        "is_system": false, "notes": "", "ip": "127.0.0.1",
+        "created_at": 1792869488, "updated_at": 1792869488
+    }] }),
+    |c| c.list_activities(&ListParams::new()),
+    |got| {
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].activity_type_id, "10");
+        assert_eq!(got[0].created_at, Some(1792869488));
+    }
+);
+
+/// The feed is a different shape: numeric type, labelled references.
+#[tokio::test]
+async fn activity_feed_asks_for_reactv2_and_decodes_labelled_references() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/activities"))
+        .and(query_param("reactv2", "1"))
+        .and(query_param("rows", "5"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [{
+            "id": "7", "hashed_id": "h7", "activity_type_id": 10, "notes": "", "ip": "",
+            "created_at": 1792869488,
+            "user": { "label": "Ann", "hashed_id": "u1" },
+            "invoice": { "label": "0001", "hashed_id": "i1" },
+            "payment_amount": "5.00"
+        }] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let feed = client(&server).activity_feed(Some(5)).await.unwrap();
+    assert_eq!(feed[0].activity_type_id, 10);
+    assert_eq!(feed[0].invoice.as_ref().unwrap().label, "0001");
+    assert!(feed[0].client.is_none());
+    assert_eq!(feed[0].extra["payment_amount"], "5.00");
+}
+
+#[tokio::test]
+async fn activity_feed_without_rows_sends_no_rows_parameter() {
+    let server = route_server("GET", "/activities", json!({ "data": [] })).await;
+    client(&server).activity_feed(None).await.unwrap();
+
+    let url = &server.received_requests().await.unwrap()[0].url;
+    assert!(
+        !url.query_pairs().any(|(k, _)| k == "rows"),
+        "the server picks its own default, got {url}"
+    );
+}
+
+/// The server tests for the key, not its value, so `rows: null` would count
+/// as given and `take(null)` would drop the limit.
+#[tokio::test]
+async fn entity_activity_omits_rows_unless_given() {
+    for (rows, expected) in [
+        (None, json!({ "entity": "client", "entity_id": "c1" })),
+        (
+            Some(3),
+            json!({ "entity": "client", "entity_id": "c1", "rows": 3 }),
+        ),
+    ] {
+        let server = route_server("POST", "/activities/entity", json!({ "data": [] })).await;
+        client(&server)
+            .entity_activity("client", "c1", rows)
+            .await
+            .unwrap();
+        let sent: serde_json::Value = server.received_requests().await.unwrap()[0]
+            .body_json()
+            .unwrap();
+        assert_eq!(sent, expected);
+    }
+}
+
+extra_test!(
+    add_activity_note_returns_the_activity,
+    "POST",
+    "/activities/notes",
+    json!({ "data": { "id": "a9", "notes": "called them" } }),
+    |c| c.add_activity_note("invoices", "i1", "called them"),
+    |got| assert_eq!(got.notes, "called them")
+);
+
+#[tokio::test]
+async fn download_activity_entity_returns_the_pdf_bytes() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/activities/download_entity/a1"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"%PDF-1.4".to_vec()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        client(&server)
+            .download_activity_entity("a1")
+            .await
+            .unwrap(),
+        b"%PDF-1.4"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_activity_backup_is_an_api_error_not_a_decode_failure() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({ "message": "No backup exists", "errors": {} })),
+        )
+        .mount(&server)
+        .await;
+    let err = client(&server)
+        .download_activity_entity("a1")
+        .await
+        .expect_err("404");
+    assert!(
+        matches!(err, Error::Api { status, .. } if status == 404),
+        "{err:?}"
+    );
+}
+
+extra_test!(
+    client_email_history_decodes_a_bare_array,
+    "POST",
+    "/emails/clientHistory/c1",
+    json!([{ "entity": "invoice", "events": [{ "event": "delivered" }] }]),
+    |c| c.client_email_history("c1"),
+    |got| assert_eq!(got[0]["events"][0]["event"], "delivered")
+);
+
+extra_test!(
+    entity_email_history_sends_entity_and_id,
+    "POST",
+    "/emails/entityHistory",
+    json!([]),
+    |c| c.entity_email_history("invoice", "i1"),
+    |got| assert!(got.is_empty())
+);
+
+/// Every preview returns raw bytes (a PDF), never decodes JSON, and is
+/// routed to its own path.
+#[tokio::test]
+async fn previews_return_bytes_from_their_own_routes() {
+    let routes = [
+        "/preview",
+        "/live_preview",
+        "/live_design",
+        "/preview/purchase_order",
+        "/live_preview/purchase_order",
+    ];
+    for route in routes {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"%PDF-1.4".to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let c = client(&server);
+        let body = json!({ "entity": "invoice", "entity_id": "-1" });
+        let got = match route {
+            "/preview" => c.preview(&body).await,
+            "/live_preview" => c.live_preview(&body).await,
+            "/live_design" => c.live_design(&body).await,
+            "/preview/purchase_order" => c.preview_purchase_order(&body).await,
+            _ => c.live_preview_purchase_order(&body).await,
+        };
+        assert_eq!(got.unwrap(), b"%PDF-1.4", "{route}");
+    }
+}
+
+#[tokio::test]
+async fn preview_html_asks_for_html_and_returns_text() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/preview"))
+        .and(query_param("html", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>x</html>"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let html = client(&server)
+        .preview_html(&json!({ "entity": "invoice", "entity_id": "-1" }))
+        .await
+        .unwrap();
+    assert_eq!(html, "<html>x</html>");
+}
+
+/// Previews can be rejected with a JSON validation error rather than a PDF.
+#[tokio::test]
+async fn a_rejected_preview_keeps_the_validation_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(422).set_body_json(json!({
+            "message": "invalid data access",
+            "errors": { "design.design.body": ["bad twig"] }
+        })))
+        .mount(&server)
+        .await;
+    let err = client(&server).preview(&json!({})).await.expect_err("422");
+    assert!(
+        matches!(&err, Error::Api { errors, .. } if errors.contains_key("design.design.body")),
+        "{err:?}"
+    );
+}
+
+/// Adding a note appends every time, so a lost response must not be replayed.
+#[tokio::test]
+async fn notes_are_not_replayed_on_5xx() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    client(&server)
+        .with_retry_policy(quick_retry())
+        .add_activity_note("invoices", "i1", "x")
+        .await
+        .expect_err("500");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
