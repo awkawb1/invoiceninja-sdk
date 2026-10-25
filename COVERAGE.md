@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 333 methods in total.
+not a resource group). 338 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -167,6 +167,38 @@ controllers return that directly rather than raising
 `ModelNotFoundException`, so the message differs from the `No query results
 for model` text a missing record produces elsewhere, but the status is the
 same 400.
+
+## Import and export
+
+| Route | Method | Returns |
+| --- | --- | --- |
+| `POST /export` | `export` | `ExportJob` |
+| `POST /preimport` | `preimport` | `ImportPreview` |
+| `POST /import` | `import` | `MessageResponse` |
+| `POST /import_json` | `import_json` | `MessageResponse` |
+| `PUT /edocument/upload` | `upload_edocument` | `MessageResponse` |
+
+A CSV import is two calls. `preimport` uploads the files — one per entity
+type, as `files[<entity_type>]` — and answers with a `hash` plus the column
+mapping the server suggests; `import` then starts the ingest from that hash.
+The server holds the files against the hash for 20 minutes.
+
+The route also accepts the files and the mapping together in one multipart
+request. That form is deliberately not wrapped: a mapping is a nested
+structure, and bracket-encoding nested structures into form fields is exactly
+what this crate avoids by sending JSON (see [the PHP SDK
+comparison](#compared-with-the-official-php-sdk)). With a `hash` present the
+controller never looks at uploaded files, so `import` is plain JSON.
+
+`upload_edocument` is *not* a document attachment, which is why it is not one
+of the `upload_*` methods: `ExpenseController::edocument` parses each file and
+creates **expenses**. Like the `/{id}/upload` routes it is registered as `PUT`
+and so goes out as a `POST` with `_method=PUT`; unlike them the reply has no
+`data` envelope.
+
+All five queue background work, so a 200 means accepted, not finished. Rows
+that fail to import are reported by email. `import_json` restores a company
+from an `export` backup and **overwrites the target company**.
 
 ## Document uploads
 
@@ -359,10 +391,8 @@ smoke test does not exercise them.
 ### Nothing is blocked on a dependency
 
 Multipart uploads used to be, and are now wrapped — see [Document
-uploads](#document-uploads). One upload route is deliberately left out:
-`PUT /edocument/upload` is not a document attachment. It imports an expense
-from an e-document (`ExpenseController::edocument`), and is better treated as
-an import endpoint alongside the others under *Import/export* below.
+uploads](#document-uploads) and [Import and
+export](#import-and-export).
 
 ### Resource groups not wrapped
 
@@ -383,8 +413,8 @@ check `routes/api.php`).
   `POST /user/{id}/reconfirm`
 - **Auth** — `/login`, `/logout`, `/refresh`, `/connected_account`,
   passkey routes
-- **Import/export** — `/import`, `/preimport`, `/import_json`, `/export`,
-  `/migration/start`
+- **Migration** — `/migration/start`. Moves a company between instances and
+  is driven by the v4 migration tool, not by an SDK caller.
 - **Invoice extras** — `delivery_note`, `payment_schedule`,
   `update_reminders`
 - **Client-portal invitation downloads** — the `routes/client.php` family:

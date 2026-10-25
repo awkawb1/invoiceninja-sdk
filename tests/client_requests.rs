@@ -2365,3 +2365,174 @@ async fn an_empty_invitation_key_is_refused_before_the_request() {
     assert!(matches!(err, Error::InvalidPathSegment(_)), "got {err:?}");
     assert!(server.received_requests().await.unwrap().is_empty());
 }
+
+// --- import and export --------------------------------------------------
+
+#[tokio::test]
+async fn export_posts_and_returns_the_collection_url() {
+    let server = route_server(
+        "POST",
+        "/export",
+        json!({ "message": "Processing", "url": "https://x.test/protected_download/abc" }),
+    )
+    .await;
+
+    let job = client(&server)
+        .export(&json!({ "send_email": false }))
+        .await
+        .expect("export should be accepted");
+    assert_eq!(job.message, "Processing");
+    assert_eq!(job.url, "https://x.test/protected_download/abc");
+}
+
+#[tokio::test]
+async fn preimport_sends_each_csv_under_its_entity_type() {
+    let server = MockServer::start().await;
+    Mock::given(path("/preimport"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "hash": "h1",
+            "mappings": {
+                "client": { "available": { "name": "Name" }, "headers": [["name"]], "hints": [0] }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let preview = client(&server)
+        .preimport(vec![
+            ("client".to_string(), pdf("clients.csv")),
+            ("invoice".to_string(), pdf("invoices.csv")),
+        ])
+        .await
+        .expect("preimport should succeed");
+    assert_eq!(preview.hash, "h1");
+    assert!(preview.mappings.contains_key("client"));
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(sent.method.as_str(), "POST");
+    let body = body_text(sent);
+    // Keyed by entity type, not `documents[]` — a different field name from
+    // the `/{id}/upload` routes.
+    assert!(
+        body.contains("name=\"files[client]\"; filename=\"clients.csv\""),
+        "body: {body}"
+    );
+    assert!(
+        body.contains("name=\"files[invoice]\"; filename=\"invoices.csv\""),
+        "body: {body}"
+    );
+    assert!(!body.contains("_method"), "preimport is a real POST");
+}
+
+#[tokio::test]
+async fn preimport_with_no_files_is_refused_before_the_request() {
+    let server = MockServer::start().await;
+    Mock::given(path("/preimport"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "hash": "h1" })))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .preimport(vec![])
+        .await
+        .expect_err("an empty import must not be sent");
+    assert!(matches!(err, Error::InvalidUpload(_)), "got {err:?}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+/// The second phase is ordinary JSON, not multipart: the hash stands in for
+/// the files, so there is nothing to encode as a form.
+#[tokio::test]
+async fn import_sends_json_rather_than_a_form() {
+    let server = route_server("POST", "/import", json!({ "message": "Import started" })).await;
+
+    let got = client(&server)
+        .import(&json!({ "hash": "h1", "column_map": { "client": { "mapping": {} } } }))
+        .await
+        .expect("import should be accepted");
+    assert_eq!(got.message, "Import started");
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    let content_type = sent.headers.get("content-type").unwrap().to_str().unwrap();
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        sent.body_json::<serde_json::Value>().unwrap()["hash"],
+        "h1",
+        "the hash is what stands in for the upload"
+    );
+}
+
+#[tokio::test]
+async fn import_json_sends_one_file_named_files() {
+    let server = route_server(
+        "POST",
+        "/import_json",
+        json!({ "message": "Processing", "success": true }),
+    )
+    .await;
+
+    let got = client(&server)
+        .import_json(pdf("backup.zip"))
+        .await
+        .expect("import_json should be accepted");
+    assert_eq!(got.message, "Processing");
+    assert_eq!(
+        got.extra["success"], true,
+        "the success flag is kept in extra"
+    );
+
+    let body = body_text(&server.received_requests().await.unwrap()[0]);
+    assert!(
+        body.contains("name=\"files\"; filename=\"backup.zip\""),
+        "singular `files`, not `files[]`: body: {body}"
+    );
+}
+
+#[tokio::test]
+async fn upload_edocument_is_a_post_that_spoofs_put() {
+    let server = route_server(
+        "POST",
+        "/edocument/upload",
+        json!({ "message": "Processing...." }),
+    )
+    .await;
+
+    let got = client(&server)
+        .upload_edocument(vec![pdf("einvoice.xml")])
+        .await
+        .expect("edocument upload should be accepted");
+    assert_eq!(got.message, "Processing....");
+
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(
+        sent.method.as_str(),
+        "POST",
+        "the route is a PUT, but a real PUT drops the files"
+    );
+    let body = body_text(sent);
+    assert!(body.contains("name=\"_method\"\r\n\r\nPUT"), "body: {body}");
+    assert!(
+        body.contains("name=\"documents[]\"; filename=\"einvoice.xml\""),
+        "body: {body}"
+    );
+}
+
+#[tokio::test]
+async fn edocument_uploads_are_never_replayed() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .with_retry_policy(quick_retry())
+        .upload_edocument(vec![pdf("einvoice.xml")])
+        .await
+        .expect_err("500");
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        1,
+        "a multipart body is not cloneable, so it gets one attempt"
+    );
+}

@@ -337,9 +337,9 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 333 methods: 30 resources with CRUD + bulk, 3 with CRUD
+(which isn't one). 338 methods: 30 resources with CRUD + bulk, 3 with CRUD
 only, 4 with entity actions, 4 with invitation-key downloads, 16 with
-document uploads, and 69 hand-written.
+document uploads, and 74 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
 the four action-capable resources, their invitation-key PDF and e-document

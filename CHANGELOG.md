@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Import and export, five methods: `export`, `preimport`, `import`,
+  `import_json`, and `upload_edocument`. A CSV import is two calls —
+  `preimport` uploads the files as `files[<entity_type>]` and returns the
+  column mapping the server suggests, then `import` starts the ingest from
+  the returned `hash`. The route's one-shot form (files and mapping in a
+  single multipart request) is deliberately not wrapped: a mapping is nested,
+  and bracket-encoding nested structures is what this crate avoids by sending
+  JSON. `upload_edocument` imports expenses from e-documents and is not a
+  document attachment, which is why it is not an `upload_*` method. Adds
+  `ExportJob` (the export's collection URL expires in 1–5 hours) and
+  `ImportPreview`. All of these queue work, so a success means accepted, not
+  done.
 - Invitation-key downloads, eight methods:
   `download_invoice_by_invitation_key` and
   `download_e_invoice_by_invitation_key`, plus the same pair for quotes,

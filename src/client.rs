@@ -8,11 +8,11 @@ use crate::error::{ApiErrorBody, Error, Result};
 use crate::models::{
     Activity, ActivityFeedEntry, BankIntegration, BankTransaction, BankTransactionRule,
     BulkRequest, Client as ClientModel, ClientGatewayToken, Company, CompanyGateway, CompanyToken,
-    Credit, Design, Document, Expense, ExpenseCategory, GroupSetting, HealthCheck, Invoice,
-    ItemResponse, ListParams, ListResponse, Location, MessageResponse, Payment, PaymentTerm,
-    Product, Project, PurchaseOrder, Quote, RecurringExpense, RecurringInvoice, RecurringQuote,
-    SearchResults, Statics, Subscription, SubscriptionStep, SystemLog, Tag, Task, TaskScheduler,
-    TaskStatus, TaxRate, User, Vendor, Webhook,
+    Credit, Design, Document, Expense, ExpenseCategory, ExportJob, GroupSetting, HealthCheck,
+    ImportPreview, Invoice, ItemResponse, ListParams, ListResponse, Location, MessageResponse,
+    Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote, RecurringExpense,
+    RecurringInvoice, RecurringQuote, SearchResults, Statics, Subscription, SubscriptionStep,
+    SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
 };
 use crate::retry::{self, RetryPolicy};
 use crate::upload::FileUpload;
@@ -627,6 +627,31 @@ impl InvoiceNinjaClient {
             .await?;
         let body: ItemResponse<T> = Self::decode(response).await?;
         Ok(body.data)
+    }
+
+    /// Sends a caller-built multipart form and decodes a body with no `data`
+    /// wrapper.
+    ///
+    /// [`upload_files`](Self::upload_files) covers the 16 `/{id}/upload`
+    /// routes, which all take `documents[]` and answer with an envelope. The
+    /// import and e-document routes share none of that: the field name is
+    /// `files`, keyed by entity type for the CSV importers, and the reply is
+    /// a bare `{"message": …}`. So the form is built at the call site, where
+    /// the route's own shape is visible, and only the dispatch is shared.
+    ///
+    /// Always a `POST` on the wire. A route registered as `PUT` needs a
+    /// `_method=PUT` text field instead, for the reason spelled out on
+    /// `upload_files`. Like every multipart request, these are never retried:
+    /// the body is a stream, so `execute` gives it exactly one attempt.
+    async fn multipart_unwrapped<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        form: multipart::Form,
+    ) -> Result<T> {
+        let response = self
+            .execute(self.req(Method::POST, path).multipart(form))
+            .await?;
+        Self::decode(response).await
     }
 
     /// Issues a request whose body is discarded, failing on non-2xx.
@@ -1979,5 +2004,109 @@ impl InvoiceNinjaClient {
     /// [`live_preview`](Self::live_preview) for a purchase order.
     pub async fn live_preview_purchase_order<B: Serialize>(&self, body: &B) -> Result<Vec<u8>> {
         self.post_raw("live_preview/purchase_order", body).await
+    }
+}
+
+/// Import, export, and the third-party integrations.
+///
+/// These are the least SDK-shaped part of the API, and they are typed
+/// accordingly. Most return `serde_json::Value` rather than a model: their
+/// replies are pass-throughs from an external service (Storecove, Stripe,
+/// Yodlee, GoCardless) or ad-hoc arrays assembled for Invoice Ninja's own
+/// React client, so they have no stable documented schema. The convention
+/// matches `client_peppol_discovery`, which has returned `Value` since it
+/// landed. Where a shape *is* stable and is the point of the call, it is
+/// typed: [`ExportJob`] and [`ImportPreview`].
+///
+/// Every write here is a `POST`, `PUT`, or `DELETE`, so none is retried on a
+/// 5xx. Several queue background work and answer `{"message": "Processing"}`
+/// before anything has happened, so a success here means accepted, not done.
+impl InvoiceNinjaClient {
+    /// Queues a full company export and returns the link to collect it from.
+    ///
+    /// The work happens in a queued job, so this returns as soon as it is
+    /// accepted. See [`ExportJob`] for the expiry on the URL.
+    ///
+    /// The body selects the format and date range (`send_email`, `report_keys`,
+    /// `start_date`, `end_date`); an empty object exports everything.
+    pub async fn export<B: Serialize>(&self, body: &B) -> Result<ExportJob> {
+        self.post_unwrapped("export", body).await
+    }
+
+    /// Uploads CSVs and returns the column mapping the server suggests —
+    /// the first half of a CSV import.
+    ///
+    /// Each entry pairs an entity type (`client`, `invoice`, `product`,
+    /// `payment`, `expense`, `vendor`, …) with that entity's CSV, and goes
+    /// out as `files[<entity_type>]`. Take the `hash` off the result and pass
+    /// it to [`import`](Self::import) to start the ingest.
+    ///
+    /// The server caches the uploaded files against that hash for 20 minutes,
+    /// so the second call has to follow reasonably promptly.
+    pub async fn preimport(&self, files: Vec<(String, FileUpload)>) -> Result<ImportPreview> {
+        if files.is_empty() {
+            return Err(Error::InvalidUpload("no files to import".into()));
+        }
+
+        let mut form = multipart::Form::new();
+        for (entity_type, file) in files {
+            form = form.part(format!("files[{entity_type}]"), file.into_part()?);
+        }
+        self.multipart_unwrapped("preimport", form).await
+    }
+
+    /// Starts a CSV import from a [`preimport`](Self::preimport) hash.
+    ///
+    /// The body carries the `hash` plus the column mapping to use — the
+    /// shape `preimport` described. With a hash present the server never
+    /// looks at uploaded files, so this goes out as ordinary JSON.
+    ///
+    /// Only this two-phase form is wrapped. The route also accepts the files
+    /// and the mapping together in one multipart request, but a mapping is a
+    /// nested structure, and bracket-encoding nested structures into form
+    /// fields is the thing this crate avoids by sending JSON everywhere else.
+    /// Call `preimport` first instead.
+    ///
+    /// The ingest is queued, so a success means accepted. Rows that fail to
+    /// import are reported by email, not here.
+    pub async fn import<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("import", body).await
+    }
+
+    /// Restores a company from a `.zip` backup produced by
+    /// [`export`](Self::export).
+    ///
+    /// One file, sent as `files`. The reply's `success` flag and any
+    /// `metadata` the server attaches arrive in
+    /// [`MessageResponse::extra`](crate::models::MessageResponse).
+    ///
+    /// **This overwrites the target company.** The route exists for
+    /// migrations, not for merging two datasets.
+    pub async fn import_json(&self, file: FileUpload) -> Result<MessageResponse> {
+        let form = multipart::Form::new().part("files", file.into_part()?);
+        self.multipart_unwrapped("import_json", form).await
+    }
+
+    /// Imports expenses from e-documents (an XML invoice, or a PDF with one
+    /// embedded).
+    ///
+    /// Not a document attachment, which is why it is not one of the
+    /// `upload_*` methods: the files are parsed and become *expenses*, and
+    /// nothing is attached to the record you might expect. The route is
+    /// registered as `PUT`, so this goes out as a `POST` with `_method=PUT`
+    /// for the usual multipart reason.
+    ///
+    /// Parsing is queued per file, so the reply says `Processing....` and a
+    /// file that fails to parse is not reported here.
+    pub async fn upload_edocument(&self, files: Vec<FileUpload>) -> Result<MessageResponse> {
+        if files.is_empty() {
+            return Err(Error::InvalidUpload("no files to upload".into()));
+        }
+
+        let mut form = multipart::Form::new().text("_method", "PUT");
+        for file in files {
+            form = form.part("documents[]", file.into_part()?);
+        }
+        self.multipart_unwrapped("edocument/upload", form).await
     }
 }
