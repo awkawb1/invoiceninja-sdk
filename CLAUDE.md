@@ -22,6 +22,14 @@ This project uses Nix for toolchain management (Rust via `rust-overlay`):
 nix develop
 ```
 
+`flake.nix` also has `packages.default`: `nix build` compiles with the
+pinned dev toolchain and runs the full test suite, including doctests,
+inside the Nix sandbox. The crate has no `[[bin]]` target (see the "No
+CLI" non-goal in `GOALS.md`), so the resulting store path is empty —
+`cargoInstallHook` has no binary to copy out of `target/release`. Treat
+`nix build` as a build-and-test gate, not a source of an installable
+artifact.
+
 ### Rust version
 
 Two versions are pinned, and **three places must agree** when either moves:

@@ -43,6 +43,14 @@
           packages = [ toolchain pkgs.pkg-config pkgs.openssl pkgs.jq ];
           RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
+
+        # Built with the pinned dev toolchain, not nixpkgs' own rustc, so a
+        # `nix build` matches what `nix develop` and CI compile with rather
+        # than whatever stable nixpkgs happens to carry.
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
       in
       {
         devShells.default = shellFor rustToolchain;
@@ -50,5 +58,25 @@
         # Verifies the declared MSRV still builds:
         #   nix develop .#msrv --command cargo test
         devShells.msrv = shellFor msrvToolchain;
+
+        # This is a library with no `[[bin]]` target (see the "No CLI, and
+        # no binary at all" non-goal in GOALS.md), so the output directory
+        # ends up empty: `cargoInstallHook` only copies binaries matching a
+        # `[[bin]]` target out of `target/release`, and there are none to
+        # copy. `nix build` is still meaningful as a build-and-test gate —
+        # it compiles with the pinned toolchain and runs the full suite,
+        # including doctests, inside the Nix sandbox (no network, matching
+        # the "no credentials needed" property in CLAUDE.md) — just not as
+        # a source of an installable artifact.
+        packages.default = rustPlatform.buildRustPackage {
+          pname = "invoiceninjars";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+          src = self;
+          cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.openssl ];
+          # The test suite needs no network (see CLAUDE.md), so the default
+          # `cargo test` checkPhase runs unmodified in the sandboxed build.
+        };
       });
 }
