@@ -3,6 +3,7 @@ use std::time::Duration;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::{header, multipart, Method, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
 
 use crate::error::{ApiErrorBody, Error, Result};
 use crate::models::{
@@ -627,6 +628,55 @@ impl InvoiceNinjaClient {
             .await?;
         let body: ItemResponse<T> = Self::decode(response).await?;
         Ok(body.data)
+    }
+
+    /// `post_unwrapped` for the other body-carrying verbs.
+    ///
+    /// The e-invoice routes use all three: `PUT einvoice/peppol/update` and
+    /// `DELETE einvoice/peppol/remove_additional_legal_identifier` both take
+    /// a payload, and a `DELETE` with a body is unusual enough to be worth
+    /// naming rather than hiding behind a generic request builder.
+    async fn send_unwrapped<B: Serialize, T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        payload: &B,
+    ) -> Result<T> {
+        let response = self.execute(self.req(method, path).json(payload)).await?;
+        Self::decode(response).await
+    }
+
+    /// `post_unwrapped` for a route that answers either a JSON body or a
+    /// `204 No Content`.
+    ///
+    /// `einvoice/peppol/setup` does exactly that: it returns a
+    /// `corppass_url` when one is needed to finish the connection, and an
+    /// empty 204 when the setup completed outright. Decoding the 204 into
+    /// `T` would fail on an empty body, so the absence is returned as `None`
+    /// instead of being an error — the two outcomes are both successes and
+    /// the caller has to branch on them anyway.
+    async fn post_unwrapped_opt<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        payload: &B,
+    ) -> Result<Option<T>> {
+        let response = self
+            .execute(self.req(Method::POST, path).json(payload))
+            .await?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        if !status.is_success() {
+            return Err(Self::api_error(status, &bytes));
+        }
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|source| Error::Json {
+                source,
+                excerpt: excerpt(&bytes),
+            })
     }
 
     /// Sends a caller-built multipart form and decodes a body with no `data`
@@ -1267,7 +1317,7 @@ impl InvoiceNinjaClient {
     /// eleven charts share no common response shape — `totals_v2` answers
     /// with per-currency maps, `cashflow_forecast` with a date series,
     /// `calculated_fields` with scalars — so there is nothing to narrow to.
-    /// Pass `serde_json::Value`, or your own struct for the chart you are
+    /// Pass `Value`, or your own struct for the chart you are
     /// calling.
     ///
     /// `project_analytics` and `project_burnup` take a project id as a
@@ -1719,7 +1769,7 @@ impl InvoiceNinjaClient {
 
     /// The client's effective settings, each tagged with the level it came
     /// from. Left as raw JSON: the map's keys are the settings themselves.
-    pub async fn client_show_settings(&self, id: &str) -> Result<serde_json::Value> {
+    pub async fn client_show_settings(&self, id: &str) -> Result<Value> {
         self.post_unwrapped(
             &format!("clients/{}/show_settings", seg(id)?),
             &serde_json::json!({}),
@@ -1729,7 +1779,7 @@ impl InvoiceNinjaClient {
 
     /// Looks the client up on the Peppol network. Left as raw JSON: the
     /// controller returns whatever the discovery service produced.
-    pub async fn client_peppol_discovery(&self, id: &str) -> Result<serde_json::Value> {
+    pub async fn client_peppol_discovery(&self, id: &str) -> Result<Value> {
         self.post_unwrapped(
             &format!("clients/{}/peppol_discovery", seg(id)?),
             &serde_json::json!({}),
@@ -1943,7 +1993,7 @@ impl InvoiceNinjaClient {
     /// message that has delivery events. Left as raw JSON, since the objects
     /// mirror whatever the mail provider reported and no instance available
     /// here had sent mail to take a shape from.
-    pub async fn client_email_history(&self, client_id: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn client_email_history(&self, client_id: &str) -> Result<Vec<Value>> {
         self.post_unwrapped(
             &format!("emails/clientHistory/{}", seg(client_id)?),
             &serde_json::json!({}),
@@ -1954,11 +2004,7 @@ impl InvoiceNinjaClient {
     /// Email delivery history for one record. `entity` is `invoice`, `quote`,
     /// `credit`, `recurring_invoice`, or `purchase_order`. Raw JSON, as for
     /// [`client_email_history`](Self::client_email_history).
-    pub async fn entity_email_history(
-        &self,
-        entity: &str,
-        entity_id: &str,
-    ) -> Result<Vec<serde_json::Value>> {
+    pub async fn entity_email_history(&self, entity: &str, entity_id: &str) -> Result<Vec<Value>> {
         self.post_unwrapped(
             "emails/entityHistory",
             &serde_json::json!({ "entity": entity, "entity_id": entity_id }),
@@ -2010,7 +2056,7 @@ impl InvoiceNinjaClient {
 /// Import, export, and the third-party integrations.
 ///
 /// These are the least SDK-shaped part of the API, and they are typed
-/// accordingly. Most return `serde_json::Value` rather than a model: their
+/// accordingly. Most return `Value` rather than a model: their
 /// replies are pass-throughs from an external service (Storecove, Stripe,
 /// Yodlee, GoCardless) or ad-hoc arrays assembled for Invoice Ninja's own
 /// React client, so they have no stable documented schema. The convention
@@ -2108,5 +2154,348 @@ impl InvoiceNinjaClient {
             form = form.part("documents[]", file.into_part()?);
         }
         self.multipart_unwrapped("edocument/upload", form).await
+    }
+}
+
+/// The e-invoicing surface: Peppol, Verifactu, and the token and quota the
+/// hosted service meters them with.
+///
+/// Almost everything here is a pass-through to Storecove, Invoice Ninja's
+/// Peppol access point, so the replies are whatever that service said and
+/// are returned as `Value`. Two upstream habits shape these
+/// signatures:
+///
+/// - **A failing check is a non-2xx.** `validate_einvoice` answers `422`
+///   when validation finds problems, and the Peppol routes pass Storecove's
+///   status straight through. So an ordinary "this invoice is not
+///   Peppol-ready" result arrives as [`Error::Api`](crate::Error::Api), not
+///   as an `Ok` carrying failures.
+/// - **Error bodies are not the usual shape.** The Peppol handlers return
+///   `data_get($response, 'message')` as the whole body, which may be a bare
+///   string or an object rather than `{"message": …, "errors": {…}}`. When
+///   it is, `Error::Api`'s `message` falls back to an excerpt of the body
+///   and `errors` is empty.
+impl InvoiceNinjaClient {
+    /// Checks one entity against the company's e-invoice rules.
+    ///
+    /// The body names what to check: `{"entity": "invoices", "entity_id":
+    /// "…"}`, where `entity` is one of `invoices`, `recurring_invoices`,
+    /// `credits`, `clients`, or `companies`.
+    ///
+    /// **A failed check is a `422`**, so it comes back as `Error::Api` and
+    /// the per-entity detail in the body is not reachable through the typed
+    /// error. An `Ok` means the entity passed. A company whose
+    /// `e_invoice_type` is neither `VERIFACTU` nor `PEPPOL` always passes,
+    /// with every list empty.
+    pub async fn validate_einvoice<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.post_unwrapped("einvoice/validateEntity", body).await
+    }
+
+    /// Updates the company's e-invoice payment means and other Peppol
+    /// configuration.
+    pub async fn einvoice_configurations<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.post_unwrapped("einvoice/configurations", body).await
+    }
+
+    /// Returns the account's remaining e-invoice quota as `{"quota": n}`.
+    ///
+    /// Hosted only in practice: it asks the hosted Invoice Ninja service,
+    /// authenticated with the account's e-invoicing token, and refreshes the
+    /// local count from the answer. Without a token the server answers
+    /// `422`.
+    pub async fn einvoice_quota(&self) -> Result<Value> {
+        self.get_unwrapped("einvoice/quota").await
+    }
+
+    /// Checks that the e-invoicing service is reachable and the account's
+    /// token is good.
+    ///
+    /// The body is an empty object on success, so there is nothing to
+    /// return; a missing token or an unreachable service is a `422` or
+    /// `400`.
+    pub async fn einvoice_health_check(&self) -> Result<()> {
+        self.get_discard("einvoice/health_check").await
+    }
+
+    /// Returns the static Peppol delivery map: per country, which
+    /// classifications are routable and which client identifiers each
+    /// requires.
+    ///
+    /// Constant per release, so it is a reasonable thing to cache.
+    pub async fn einvoice_delivery_map(&self) -> Result<Value> {
+        self.get_unwrapped("einvoice/delivery_map").await
+    }
+
+    /// Rotates the account's e-invoicing token.
+    ///
+    /// Answers `204` on success, so there is nothing to decode. The new
+    /// token is stored server-side against the account and is never sent
+    /// back.
+    pub async fn update_einvoice_token<B: Serialize>(&self, body: &B) -> Result<()> {
+        self.post_discard("einvoice/token/update", body).await
+    }
+
+    /// Looks up whether a Peppol participant is reachable, as
+    /// `{"discovered": bool}`.
+    ///
+    /// This is the company-level lookup, which takes the identifier in the
+    /// body. [`client_peppol_discovery`](Self::client_peppol_discovery) is
+    /// the per-client route and takes a client id instead.
+    pub async fn peppol_discovery<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.post_unwrapped("einvoice/peppol/discovery", body).await
+    }
+
+    /// Fetches the company's registered Peppol legal entity.
+    ///
+    /// A `POST` despite being a read — that is how the route is registered.
+    pub async fn peppol_legal_entity<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.post_unwrapped("einvoice/peppol/legal_entity", body)
+            .await
+    }
+
+    /// Registers the company as a Peppol participant.
+    ///
+    /// Returns `Some({"corppass_url": …})` when the connection needs a
+    /// further authorisation step the caller has to send the user through
+    /// (Singapore's CorpPass), and `None` when the setup completed on its
+    /// own — upstream answers `204` in that case. Both are successes.
+    pub async fn peppol_setup<B: Serialize>(&self, body: &B) -> Result<Option<Value>> {
+        self.post_unwrapped_opt("einvoice/peppol/setup", body).await
+    }
+
+    /// Deregisters the company from Peppol. Answers an empty array.
+    pub async fn peppol_disconnect<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.post_unwrapped("einvoice/peppol/disconnect", body)
+            .await
+    }
+
+    /// Updates the registered Peppol legal entity. Answers an empty array.
+    pub async fn peppol_update_legal_entity<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.send_unwrapped(Method::PUT, "einvoice/peppol/update", body)
+            .await
+    }
+
+    /// Adds an additional tax identifier to the Peppol registration.
+    ///
+    /// An identifier that already exists for the region is a `400` rather
+    /// than a no-op.
+    pub async fn peppol_add_legal_identifier<B: Serialize>(
+        &self,
+        body: &B,
+    ) -> Result<MessageResponse> {
+        self.post_unwrapped("einvoice/peppol/add_additional_legal_identifier", body)
+            .await
+    }
+
+    /// Removes an additional tax identifier from the Peppol registration.
+    ///
+    /// A `DELETE` that carries a body, which is why it does not look like
+    /// the other `delete_*` methods. Answers an empty array.
+    pub async fn peppol_remove_legal_identifier<B: Serialize>(&self, body: &B) -> Result<Value> {
+        self.send_unwrapped(
+            Method::DELETE,
+            "einvoice/peppol/remove_additional_legal_identifier",
+            body,
+        )
+        .await
+    }
+
+    /// Retries sending a document over Peppol.
+    ///
+    /// Queued, so the reply is `{"message": "trying...."}` and says nothing
+    /// about whether the send eventually succeeded.
+    pub async fn peppol_retry_send<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("einvoice/peppol/send", body).await
+    }
+
+    /// Activates Singapore's C5 (InvoiceNow) peer.
+    pub async fn peppol_sg_c5_activate<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("einvoice/peppol/sg/c5/activate", body)
+            .await
+    }
+
+    /// Deactivates Singapore's C5 peer.
+    pub async fn peppol_sg_c5_deactivate<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("einvoice/peppol/sg/c5/deactivate", body)
+            .await
+    }
+
+    /// Cancels a pending Singapore C5 registration.
+    pub async fn peppol_sg_c5_cancel<B: Serialize>(&self, body: &B) -> Result<MessageResponse> {
+        self.post_unwrapped("einvoice/peppol/sg/c5/cancel", body)
+            .await
+    }
+}
+
+/// The third-party integrations: QuickBooks, Stripe Connect, calendar sync,
+/// and the two bank-feed providers.
+///
+/// Replies are `Value` for the same reason as the e-invoice
+/// block — they are pass-throughs from the provider's own SDK, or arrays
+/// assembled for Invoice Ninja's React client. Several answer `204`, so
+/// their methods return `()`.
+///
+/// The OAuth halves of these flows are **not** wrapped and cannot be: the
+/// authorize and callback routes live outside the `api/v1` group, take no
+/// API token, and answer with browser redirects. Connecting an account is a
+/// thing a user does in a browser; these methods operate a connection that
+/// already exists.
+impl InvoiceNinjaClient {
+    /// Starts a QuickBooks sync. Answers `204`; the work is queued.
+    pub async fn quickbooks_sync<B: Serialize>(&self, body: &B) -> Result<()> {
+        self.post_discard("quickbooks/sync", body).await
+    }
+
+    /// Runs a single QuickBooks action. Answers `204`.
+    pub async fn quickbooks_action<B: Serialize>(&self, body: &B) -> Result<()> {
+        self.post_discard("quickbooks/action", body).await
+    }
+
+    /// Disconnects the QuickBooks integration. Answers `204`.
+    pub async fn quickbooks_disconnect<B: Serialize>(&self, body: &B) -> Result<()> {
+        self.post_discard("quickbooks/disconnect", body).await
+    }
+
+    /// Mints a one-time URL for re-authorising an expired QuickBooks
+    /// connection.
+    ///
+    /// Answers `reconnect_url`, `requires_reconnect`, and
+    /// `refresh_token_expires_at`. The URL embeds a token good for 30
+    /// minutes and has to be opened in a browser. With no connection
+    /// configured the server answers `400`.
+    pub async fn quickbooks_reconnect_url(&self) -> Result<Value> {
+        self.post_unwrapped("quickbooks/reconnect_url", &serde_json::json!({}))
+            .await
+    }
+
+    /// Queues a refresh of every stored Stripe payment method.
+    ///
+    /// Password-protected: needs
+    /// [`with_api_password`](Self::with_api_password), and answers `403` for
+    /// a non-admin.
+    pub async fn stripe_update_payment_methods(&self) -> Result<MessageResponse> {
+        self.post_unwrapped("stripe/update_payment_methods", &serde_json::json!({}))
+            .await
+    }
+
+    /// Queues an import of existing Stripe customers into clients.
+    ///
+    /// Password-protected. Matching is by email, so running it against an
+    /// instance that already has those clients can create duplicates.
+    pub async fn stripe_import_customers(&self) -> Result<MessageResponse> {
+        self.post_unwrapped("stripe/import_customers", &serde_json::json!({}))
+            .await
+    }
+
+    /// Verifies the Stripe Connect connection.
+    ///
+    /// Password-protected. The body is whatever the gateway driver's
+    /// `verifyConnect` returned, which is not a documented shape.
+    pub async fn stripe_verify(&self) -> Result<Value> {
+        self.post_unwrapped("stripe/verify", &serde_json::json!({}))
+            .await
+    }
+
+    /// Disconnects a Stripe Connect account from one company gateway.
+    ///
+    /// Password-protected. The reply comes from the driver's `disconnect`.
+    pub async fn stripe_disconnect(&self, company_gateway_id: &str) -> Result<Value> {
+        self.post_unwrapped(
+            &format!("stripe/disconnect/{}", seg(company_gateway_id)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Returns the company's calendar connection, or a null one if there is
+    /// none.
+    pub async fn calendar_connection(&self) -> Result<Value> {
+        self.get_one("calendar_connection").await
+    }
+
+    /// Finishes a calendar connection the user has authorised in a browser.
+    ///
+    /// `provider` is the OAuth provider that was authorised. The redirect
+    /// and callback legs are not wrappable — see the note on this `impl`
+    /// block — so this is the first step an API caller can take, using
+    /// whatever the callback handed back.
+    pub async fn complete_calendar_connection<B: Serialize>(
+        &self,
+        provider: &str,
+        body: &B,
+    ) -> Result<Value> {
+        self.post_one(
+            &format!("calendar_connection/{}/complete", seg(provider)?),
+            body,
+        )
+        .await
+    }
+
+    /// Lists the calendars the connected account exposes, as
+    /// `{"calendars": …}`.
+    pub async fn calendar_connection_calendars(&self) -> Result<Value> {
+        self.get_one("calendar_connection/calendars").await
+    }
+
+    /// Lists events from the selected calendars between two dates, as
+    /// `{"events": …}`.
+    ///
+    /// `from` and `to` are required by the server and are dates, not
+    /// timestamps.
+    pub async fn calendar_connection_events(&self, from: &str, to: &str) -> Result<Value> {
+        // Encoded with the path-segment set rather than through `seg`: these
+        // are query values, not segments, so `seg`'s refusal of empty and
+        // dot-only input would be checking the wrong thing. The set still
+        // escapes `&`, `=` and `?`, which is what matters here.
+        self.get_one(&format!(
+            "calendar_connection/events?from={}&to={}",
+            utf8_percent_encode(from, PATH_SEGMENT),
+            utf8_percent_encode(to, PATH_SEGMENT)
+        ))
+        .await
+    }
+
+    /// Chooses which of the connected account's calendars to sync.
+    ///
+    /// The body is `{"calendar_ids": [...]}`. It replaces the selection
+    /// rather than adding to it, so an empty list syncs nothing.
+    pub async fn update_calendar_connection_calendars<B: Serialize>(
+        &self,
+        body: &B,
+    ) -> Result<Value> {
+        self.put_one("calendar_connection/calendars", body).await
+    }
+
+    /// Disconnects the calendar connection.
+    ///
+    /// Answers `{"data": {"calendar_connection": null}}`, which carries no
+    /// information beyond the success, so it is discarded.
+    pub async fn delete_calendar_connection(&self) -> Result<()> {
+        self.delete_one("calendar_connection").await
+    }
+
+    /// Returns the Yodlee account summary for one bank account number.
+    ///
+    /// The number is Yodlee's `account_id`, as stored on the matching
+    /// [`BankIntegration`](crate::models::BankIntegration) — not an Invoice
+    /// Ninja id. An account the company does not hold is a `400`.
+    ///
+    /// A `POST` despite being a read; the upstream route carries a `@todo`
+    /// questioning its own path, so treat it as liable to move.
+    pub async fn yodlee_account_status(&self, account_number: &str) -> Result<Value> {
+        self.post_unwrapped(
+            &format!("yodlee/status/{}", seg(account_number)?),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Lists the GoCardless (formerly Nordigen) institutions available for
+    /// bank feeds.
+    ///
+    /// Needs the instance to be configured with GoCardless credentials;
+    /// without them the server answers `400` rather than an empty list.
+    pub async fn nordigen_institutions(&self) -> Result<Value> {
+        self.get_unwrapped("nordigen/institutions").await
     }
 }

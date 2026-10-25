@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- E-invoicing, seventeen methods: `validate_einvoice`,
+  `einvoice_configurations`, `einvoice_quota`, `einvoice_health_check`,
+  `einvoice_delivery_map`, `update_einvoice_token`, and eleven `peppol_*`.
+  Three behave unlike the rest of the API, and the docs on each say so: a
+  failing `validate_einvoice` is a `422`, so an ordinary "not Peppol-ready"
+  result arrives as `Error::Api`; the Peppol handlers return the error
+  message as the whole body rather than `{"message": …}`, so `Error::Api`'s
+  `errors` map is empty for them; and `peppol_setup` has two success shapes,
+  hence `Option<Value>`. `peppol_remove_legal_identifier` is the crate's
+  only `DELETE` with a request body.
+- Integrations, sixteen methods: four `quickbooks_*`, four `stripe_*` (all
+  password-protected), six `calendar_connection` methods, plus
+  `yodlee_account_status` and `nordigen_institutions`. These operate a
+  connection that already exists — establishing one is an OAuth browser flow
+  whose routes take no API token and cannot be wrapped.
 - Import and export, five methods: `export`, `preimport`, `import`,
   `import_json`, and `upload_edocument`. A CSV import is two calls —
   `preimport` uploads the files as `files[<entity_type>]` and returns the

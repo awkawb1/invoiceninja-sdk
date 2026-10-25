@@ -2536,3 +2536,398 @@ async fn edocument_uploads_are_never_replayed() {
         "a multipart body is not cloneable, so it gets one attempt"
     );
 }
+
+// --- e-invoicing --------------------------------------------------------
+
+fn discovered() -> serde_json::Value {
+    json!({ "discovered": true })
+}
+
+extra_test!(
+    validate_einvoice_posts_to_validate_entity,
+    "POST",
+    "/einvoice/validateEntity",
+    json!({ "passes": true, "invoices": [], "clients": [] }),
+    |c| c.validate_einvoice(&json!({ "entity": "invoices", "entity_id": "i1" })),
+    |got| assert_eq!(got["passes"], true)
+);
+
+/// A failed check is a 422, so it arrives as an error rather than an `Ok`
+/// carrying the failures. Pinned because it is surprising.
+#[tokio::test]
+async fn a_failing_einvoice_check_is_an_error_not_a_result() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/einvoice/validateEntity"))
+        .respond_with(
+            ResponseTemplate::new(422).set_body_json(json!({ "passes": false, "invoices": ["x"] })),
+        )
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .validate_einvoice(&json!({ "entity": "invoices" }))
+        .await
+        .expect_err("a failed validation is a 422");
+    assert!(
+        matches!(&err, Error::Api { status, .. } if status.as_u16() == 422),
+        "{err:?}"
+    );
+}
+
+extra_test!(
+    einvoice_configurations_posts_the_settings,
+    "POST",
+    "/einvoice/configurations",
+    json!({}),
+    |c| c.einvoice_configurations(&json!({ "payment_means": [] })),
+    |got| assert!(got.is_object())
+);
+
+extra_test!(
+    einvoice_quota_reads_the_remaining_count,
+    "GET",
+    "/einvoice/quota",
+    json!({ "quota": 42 }),
+    |c| c.einvoice_quota(),
+    |got| assert_eq!(got["quota"], 42)
+);
+
+extra_test!(
+    einvoice_delivery_map_reads_the_static_map,
+    "GET",
+    "/einvoice/delivery_map",
+    json!({ "DE": { "routable": true } }),
+    |c| c.einvoice_delivery_map(),
+    |got| assert_eq!(got["DE"]["routable"], true)
+);
+
+extra_test!(
+    peppol_discovery_posts_the_identifier,
+    "POST",
+    "/einvoice/peppol/discovery",
+    discovered(),
+    |c| c.peppol_discovery(&json!({ "identifier": "0088:123" })),
+    |got| assert_eq!(got["discovered"], true)
+);
+
+extra_test!(
+    peppol_legal_entity_is_a_post_despite_being_a_read,
+    "POST",
+    "/einvoice/peppol/legal_entity",
+    json!({ "id": 7, "party_name": "Acme" }),
+    |c| c.peppol_legal_entity(&json!({})),
+    |got| assert_eq!(got["id"], 7)
+);
+
+extra_test!(
+    peppol_disconnect_posts_and_tolerates_an_empty_array,
+    "POST",
+    "/einvoice/peppol/disconnect",
+    json!([]),
+    |c| c.peppol_disconnect(&json!({})),
+    |got| assert!(got.is_array())
+);
+
+extra_test!(
+    peppol_update_legal_entity_is_a_put,
+    "PUT",
+    "/einvoice/peppol/update",
+    json!([]),
+    |c| c.peppol_update_legal_entity(&json!({ "party_name": "Acme" })),
+    |got| assert!(got.is_array())
+);
+
+extra_test!(
+    peppol_add_legal_identifier_returns_the_ok_message,
+    "POST",
+    "/einvoice/peppol/add_additional_legal_identifier",
+    message(),
+    |c| c.peppol_add_legal_identifier(&json!({ "identifier": "0088:1" })),
+    |got| assert_eq!(got.message, "ok")
+);
+
+// A `DELETE` that carries a body, which no other method in the crate does.
+extra_test!(
+    peppol_remove_legal_identifier_is_a_delete_with_a_body,
+    "DELETE",
+    "/einvoice/peppol/remove_additional_legal_identifier",
+    json!([]),
+    |c| c.peppol_remove_legal_identifier(&json!({ "identifier": "0088:1" })),
+    |got| assert!(got.is_array())
+);
+
+extra_test!(
+    peppol_retry_send_returns_the_queued_message,
+    "POST",
+    "/einvoice/peppol/send",
+    json!({ "message": "trying...." }),
+    |c| c.peppol_retry_send(&json!({ "entity_id": "i1" })),
+    |got| assert_eq!(got.message, "trying....")
+);
+
+extra_test!(
+    peppol_sg_c5_activate_posts_to_the_nested_path,
+    "POST",
+    "/einvoice/peppol/sg/c5/activate",
+    message(),
+    |c| c.peppol_sg_c5_activate(&json!({})),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    peppol_sg_c5_deactivate_posts_to_the_nested_path,
+    "POST",
+    "/einvoice/peppol/sg/c5/deactivate",
+    message(),
+    |c| c.peppol_sg_c5_deactivate(&json!({})),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    peppol_sg_c5_cancel_posts_to_the_nested_path,
+    "POST",
+    "/einvoice/peppol/sg/c5/cancel",
+    message(),
+    |c| c.peppol_sg_c5_cancel(&json!({})),
+    |got| assert_eq!(got.message, "ok")
+);
+
+/// `setup` answers either a URL to send the user to, or a bare 204 when the
+/// registration completed outright. Both are successes, so the 204 is `None`
+/// rather than a decode error.
+#[tokio::test]
+async fn peppol_setup_maps_a_204_to_none_and_a_body_to_some() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/einvoice/peppol/setup"))
+        .respond_with(ResponseTemplate::new(204))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        client(&server).peppol_setup(&json!({})).await.unwrap(),
+        None,
+        "an empty 204 is a completed setup, not a failure"
+    );
+
+    let server = route_server(
+        "POST",
+        "/einvoice/peppol/setup",
+        json!({ "corppass_url": "https://x.test/corppass" }),
+    )
+    .await;
+    let got = client(&server).peppol_setup(&json!({})).await.unwrap();
+    assert_eq!(
+        got.unwrap()["corppass_url"],
+        "https://x.test/corppass",
+        "a body means a further authorisation step"
+    );
+}
+
+/// The token rotation answers 204 and keeps the new token server-side.
+#[tokio::test]
+async fn update_einvoice_token_discards_the_empty_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/einvoice/token/update"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client(&server)
+        .update_einvoice_token(&json!({}))
+        .await
+        .expect("a 204 is a success");
+}
+
+#[tokio::test]
+async fn einvoice_health_check_accepts_an_empty_object() {
+    let server = route_server("GET", "/einvoice/health_check", json!({})).await;
+    client(&server)
+        .einvoice_health_check()
+        .await
+        .expect("an empty object is a pass");
+}
+
+// --- quickbooks, stripe, calendar, bank feeds ---------------------------
+
+/// The three 204 routes. A JSON decode attempt on an empty body would fail,
+/// so these must go through the discarding helper.
+#[tokio::test]
+async fn the_quickbooks_204_routes_discard_their_bodies() {
+    for (route, call) in ["sync", "action", "disconnect"].iter().zip(0..3) {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/quickbooks/{route}")))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let c = client(&server);
+        let body = json!({});
+        let result = match call {
+            0 => c.quickbooks_sync(&body).await,
+            1 => c.quickbooks_action(&body).await,
+            _ => c.quickbooks_disconnect(&body).await,
+        };
+        result.unwrap_or_else(|e| panic!("quickbooks/{route} should succeed: {e:?}"));
+    }
+}
+
+extra_test!(
+    quickbooks_reconnect_url_returns_the_one_time_link,
+    "POST",
+    "/quickbooks/reconnect_url",
+    json!({ "reconnect_url": "https://x.test/r", "requires_reconnect": true }),
+    |c| c.quickbooks_reconnect_url(),
+    |got| assert_eq!(got["reconnect_url"], "https://x.test/r")
+);
+
+extra_test!(
+    stripe_update_payment_methods_queues_the_refresh,
+    "POST",
+    "/stripe/update_payment_methods",
+    json!({ "message": "Processing" }),
+    |c| c.stripe_update_payment_methods(),
+    |got| assert_eq!(got.message, "Processing")
+);
+
+extra_test!(
+    stripe_import_customers_queues_the_import,
+    "POST",
+    "/stripe/import_customers",
+    json!({ "message": "Processing" }),
+    |c| c.stripe_import_customers(),
+    |got| assert_eq!(got.message, "Processing")
+);
+
+extra_test!(
+    stripe_verify_passes_the_driver_response_through,
+    "POST",
+    "/stripe/verify",
+    json!({ "verified": true }),
+    |c| c.stripe_verify(),
+    |got| assert_eq!(got["verified"], true)
+);
+
+extra_test!(
+    stripe_disconnect_escapes_the_gateway_id,
+    "POST",
+    "/stripe/disconnect/cg1",
+    json!({ "disconnected": true }),
+    |c| c.stripe_disconnect("cg1"),
+    |got| assert_eq!(got["disconnected"], true)
+);
+
+/// The stripe routes are password-protected, so the header has to reach them.
+#[tokio::test]
+async fn the_stripe_routes_send_the_api_password() {
+    let server = route_server(
+        "POST",
+        "/stripe/import_customers",
+        json!({ "message": "Processing" }),
+    )
+    .await;
+    client(&server)
+        .with_api_password("secret")
+        .unwrap()
+        .stripe_import_customers()
+        .await
+        .unwrap();
+
+    let headers = &server.received_requests().await.unwrap()[0].headers;
+    assert_eq!(headers["X-API-PASSWORD"], "secret");
+}
+
+extra_test!(
+    calendar_connection_unwraps_the_data_envelope,
+    "GET",
+    "/calendar_connection",
+    json!({ "data": { "provider": "google" } }),
+    |c| c.calendar_connection(),
+    |got| assert_eq!(got["provider"], "google")
+);
+
+extra_test!(
+    complete_calendar_connection_escapes_the_provider,
+    "POST",
+    "/calendar_connection/google/complete",
+    json!({ "data": { "provider": "google" } }),
+    |c| c.complete_calendar_connection("google", &json!({ "code": "x" })),
+    |got| assert_eq!(got["provider"], "google")
+);
+
+extra_test!(
+    calendar_connection_calendars_lists_the_available_ones,
+    "GET",
+    "/calendar_connection/calendars",
+    json!({ "data": { "calendars": [{ "id": "c1" }] } }),
+    |c| c.calendar_connection_calendars(),
+    |got| assert_eq!(got["calendars"][0]["id"], "c1")
+);
+
+extra_test!(
+    update_calendar_connection_calendars_is_a_put,
+    "PUT",
+    "/calendar_connection/calendars",
+    json!({ "data": { "calendar_connection": { "id": "x" } } }),
+    |c| c.update_calendar_connection_calendars(&json!({ "calendar_ids": ["c1"] })),
+    |got| assert_eq!(got["calendar_connection"]["id"], "x")
+);
+
+#[tokio::test]
+async fn calendar_connection_events_sends_both_dates_as_query_params() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/calendar_connection/events"))
+        .and(query_param("from", "2026-01-01"))
+        .and(query_param("to", "2026-01-31"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": { "events": [{ "id": "e1" }] } })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let got = client(&server)
+        .calendar_connection_events("2026-01-01", "2026-01-31")
+        .await
+        .expect("events should decode");
+    assert_eq!(got["events"][0]["id"], "e1");
+}
+
+#[tokio::test]
+async fn delete_calendar_connection_discards_the_null_payload() {
+    let server = route_server(
+        "DELETE",
+        "/calendar_connection",
+        json!({ "data": { "calendar_connection": null } }),
+    )
+    .await;
+    client(&server)
+        .delete_calendar_connection()
+        .await
+        .expect("the disconnect should succeed");
+}
+
+extra_test!(
+    yodlee_account_status_escapes_the_account_number,
+    "POST",
+    "/yodlee/status/acc%2F1",
+    json!({ "account_status": "ok" }),
+    |c| c.yodlee_account_status("acc/1"),
+    |got| assert_eq!(got["account_status"], "ok")
+);
+
+extra_test!(
+    nordigen_institutions_returns_the_bare_array,
+    "GET",
+    "/nordigen/institutions",
+    json!([{ "id": "BANK_X" }]),
+    |c| c.nordigen_institutions(),
+    |got| assert_eq!(got[0]["id"], "BANK_X")
+);

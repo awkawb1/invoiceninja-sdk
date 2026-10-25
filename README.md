@@ -100,7 +100,7 @@ IN_API_TOKEN=... cargo run --example list_clients
 
 ## Coverage
 
-Every one of the API's 34 resource groups, plus users — 338 methods. Each
+Every one of the API's 34 resource groups, plus users — 371 methods. Each
 resource has `list`, `list_all`, `get`, `create`, `update`, `delete`, and
 (where the API offers one) `bulk`:
 

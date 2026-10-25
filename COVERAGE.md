@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 338 methods in total.
+not a resource group). 371 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -199,6 +199,86 @@ and so goes out as a `POST` with `_method=PUT`; unlike them the reply has no
 All five queue background work, so a 200 means accepted, not finished. Rows
 that fail to import are reported by email. `import_json` restores a company
 from an `export` backup and **overwrites the target company**.
+
+## E-invoicing
+
+Seventeen routes, all wrapped. Mostly pass-throughs to Storecove, Invoice
+Ninja's Peppol access point, so they return `serde_json::Value` — see
+[Typed response gaps](#typed-response-gaps) for why.
+
+| Route | Method | Returns |
+| --- | --- | --- |
+| `POST /einvoice/validateEntity` | `validate_einvoice` | `Value` |
+| `POST /einvoice/configurations` | `einvoice_configurations` | `Value` |
+| `GET /einvoice/quota` | `einvoice_quota` | `Value` |
+| `GET /einvoice/health_check` | `einvoice_health_check` | `()` |
+| `GET /einvoice/delivery_map` | `einvoice_delivery_map` | `Value` |
+| `POST /einvoice/token/update` | `update_einvoice_token` | `()` (204) |
+| `POST /einvoice/peppol/discovery` | `peppol_discovery` | `Value` |
+| `POST /einvoice/peppol/legal_entity` | `peppol_legal_entity` | `Value` |
+| `POST /einvoice/peppol/setup` | `peppol_setup` | `Option<Value>` |
+| `POST /einvoice/peppol/disconnect` | `peppol_disconnect` | `Value` |
+| `PUT /einvoice/peppol/update` | `peppol_update_legal_entity` | `Value` |
+| `POST /einvoice/peppol/add_additional_legal_identifier` | `peppol_add_legal_identifier` | `MessageResponse` |
+| `DELETE /einvoice/peppol/remove_additional_legal_identifier` | `peppol_remove_legal_identifier` | `Value` |
+| `POST /einvoice/peppol/send` | `peppol_retry_send` | `MessageResponse` |
+| `POST /einvoice/peppol/sg/c5/activate` | `peppol_sg_c5_activate` | `MessageResponse` |
+| `POST /einvoice/peppol/sg/c5/deactivate` | `peppol_sg_c5_deactivate` | `MessageResponse` |
+| `POST /einvoice/peppol/sg/c5/cancel` | `peppol_sg_c5_cancel` | `MessageResponse` |
+
+Three things here behave unlike the rest of the API:
+
+- **A failing check is a non-2xx.** `validate_einvoice` answers `422` when
+  validation finds problems, so "this invoice is not Peppol-ready" — an
+  ordinary result — arrives as `Error::Api`, and the per-entity detail in the
+  body is not reachable through the typed error. An `Ok` means it passed.
+- **Error bodies are not the usual shape.** The Peppol handlers return
+  `data_get($response, 'message')` as the entire body, which can be a bare
+  string. `Error::Api`'s `message` then falls back to an excerpt and `errors`
+  is empty.
+- **`peppol_setup` has two success shapes.** A `corppass_url` when the
+  connection needs a further browser step (Singapore's CorpPass), or a bare
+  `204` when it completed. Hence `Option<Value>` rather than treating the
+  empty body as a decode failure.
+
+`peppol_remove_legal_identifier` is the only `DELETE` in the crate that
+carries a request body.
+
+## Integrations
+
+| Route | Method | Returns |
+| --- | --- | --- |
+| `POST /quickbooks/sync` | `quickbooks_sync` | `()` (204) |
+| `POST /quickbooks/action` | `quickbooks_action` | `()` (204) |
+| `POST /quickbooks/disconnect` | `quickbooks_disconnect` | `()` (204) |
+| `POST /quickbooks/reconnect_url` | `quickbooks_reconnect_url` | `Value` |
+| `POST /stripe/update_payment_methods` | `stripe_update_payment_methods` | `MessageResponse` |
+| `POST /stripe/import_customers` | `stripe_import_customers` | `MessageResponse` |
+| `POST /stripe/verify` | `stripe_verify` | `Value` |
+| `POST /stripe/disconnect/{id}` | `stripe_disconnect` | `Value` |
+| `GET /calendar_connection` | `calendar_connection` | `Value` |
+| `POST /calendar_connection/{provider}/complete` | `complete_calendar_connection` | `Value` |
+| `GET /calendar_connection/calendars` | `calendar_connection_calendars` | `Value` |
+| `GET /calendar_connection/events` | `calendar_connection_events` | `Value` |
+| `PUT /calendar_connection/calendars` | `update_calendar_connection_calendars` | `Value` |
+| `DELETE /calendar_connection` | `delete_calendar_connection` | `()` |
+| `POST /yodlee/status/{account_number}` | `yodlee_account_status` | `Value` |
+| `GET /nordigen/institutions` | `nordigen_institutions` | `Value` |
+
+All four Stripe routes are **password-protected** — supply
+`with_api_password` — and answer `403` for a non-admin.
+
+These operate a connection that already exists. **Establishing one is a
+browser flow and is not wrappable**: the OAuth authorize and callback legs
+live outside the `api/v1` group, take no API token, and answer with
+redirects. See [the gap list](#individual-endpoints-not-wrapped).
+
+`yodlee_account_status` takes Yodlee's own `account_id`, as stored on the
+matching `BankIntegration` — not an Invoice Ninja id. Its upstream route
+carries a `@todo` questioning its own path, so treat it as liable to move.
+`nordigen_institutions` covers GoCardless, which was Nordigen when the route
+was named; an instance without GoCardless credentials answers `400` rather
+than an empty list.
 
 ## Document uploads
 
@@ -424,9 +504,24 @@ check `routes/api.php`).
   don't fit a `base_url` that ends there. Note these are *not* the
   invitation-key downloads documented above, which are authenticated
   `/api/v1` routes and are wrapped.
-- **Integrations** — Stripe, QuickBooks, Apple in-app purchase, PostMark,
-  einvoice (17 routes), calendar_connection, self-update, templates, hooks,
-  Yodlee (`/yodlee/*`), Nordigen (`/nordigen/institutions`)
+- **Integration routes that cannot take an API token** — the OAuth legs of
+  the QuickBooks and calendar flows (`/quickbooks/authorize/{token}`,
+  `/quickbooks/reconnect/{token}`, `/quickbooks/authorized`,
+  `/calendar_connection/{provider}/authorize/{hash}`) and the provider
+  webhooks (`/yodlee/refresh`, `/yodlee/data_updates`,
+  `/yodlee/refresh_updates`, `/yodlee/balance`, `/postmark_webhook`,
+  `/sns_webhook`, `/postmark_inbound_webhook`, `/payment_webhook/…`). The
+  OAuth routes sit outside the `api/v1` group and answer with browser
+  redirects; the webhooks are things a provider calls, not things a client
+  calls. Connecting an account is a browser flow — see
+  [Integrations](#integrations) for the methods that operate a connection
+  once it exists.
+- **`POST /quickbooks/settings`** — the route is registered, but
+  `QuickbooksController` has no `settings` method, so it raises
+  `BadMethodCallException` and 500s. Nothing to wrap until upstream adds the
+  handler.
+- **Other integrations** — Apple in-app purchase, PostMark, self-update,
+  templates, hooks (commented out upstream)
 - **Misc** — `/company_users`, `/company_ledger`, `/client_statement`,
   `/claim_license`, `/check_license`, `/check_subdomain`, `/one_time_token`,
   `/last_error`, `/support/messages/send`, `/verify/*`, `/accounts/{id}`,
@@ -443,6 +538,17 @@ check `routes/api.php`).
 so fields they don't model stay reachable rather than being dropped, and
 each has a generic counterpart — `statics_as`, `search_as`,
 `health_check_as` — for pinning a shape they leave untyped.
+
+The [e-invoicing](#e-invoicing) and [integration](#integrations) methods
+return `serde_json::Value` as a rule, which is the largest untyped surface in
+the crate and is deliberate. Their replies are pass-throughs from an external
+service — Storecove, Stripe's gateway driver, Yodlee, GoCardless — or arrays
+assembled for Invoice Ninja's own React client. None has a documented schema,
+several differ by provider, and they change on the provider's release
+schedule rather than Invoice Ninja's. The precedent is
+`client_peppol_discovery`, which has returned `Value` since it landed. Where
+a shape *is* stable and is the point of the call it is still typed, as with
+`ExportJob` and `ImportPreview`.
 
 Two remain generic on purpose:
 

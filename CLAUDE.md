@@ -272,6 +272,22 @@ changes, doc tweaks) does not need an entry.
   refunds, ping/health) are hand-written in the last `impl` block rather than
   macro-generated, because their request and response shapes are all
   different.
+- **The import, e-invoicing and integration blocks return
+  `serde_json::Value` on purpose.** They are pass-throughs from Storecove,
+  Stripe, Yodlee or GoCardless, or arrays built for Invoice Ninja's React
+  client; none has a documented schema and they move on the provider's
+  release schedule. Don't "finish the job" by typing them — the same
+  reasoning that keeps `chart` generic applies, and `COVERAGE.md` records it
+  as the crate's largest deliberate untyped surface. `ExportJob` and
+  `ImportPreview` are typed because their one useful field (the URL, the
+  hash) is the whole point of the call.
+- Three dispatch helpers exist only for that surface: `send_unwrapped` for a
+  `PUT` or `DELETE` that carries a body (`peppol_remove_legal_identifier` is
+  the crate's only `DELETE` with one), `post_unwrapped_opt` for a route that
+  answers either JSON or a bare `204` (`peppol_setup`), and
+  `multipart_unwrapped` for the import uploads, whose form field is
+  `files[<entity_type>]` rather than `documents[]` and whose reply has no
+  `data` envelope. All three go through `req`/`execute` like everything else.
 - `list_*` returns one page; `list_all_*` goes through `get_all_pages`, which
   terminates on `meta.pagination.total_pages` and only falls back to the
   short-page heuristic when the server sends no metadata. **The heuristic is
@@ -337,20 +353,27 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 338 methods: 30 resources with CRUD + bulk, 3 with CRUD
+(which isn't one). 371 methods: 30 resources with CRUD + bulk, 3 with CRUD
 only, 4 with entity actions, 4 with invitation-key downloads, 16 with
-document uploads, and 74 hand-written.
+document uploads, and 107 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
 the four action-capable resources, their invitation-key PDF and e-document
 downloads, `report`, `chart`, `search`, `statics`, `send_email`,
-`refund_payment`, `ping`, and `health_check`.
+`refund_payment`, `ping`, `health_check`, import/export, the 17 e-invoicing
+routes, and the QuickBooks, Stripe, calendar, Yodlee and GoCardless
+integrations.
+
+**`GOALS.md`'s roadmap is closed** — every route an API-token client can
+reach is wrapped. What is left out is left out for a reason, not pending:
+the auth routes (a different auth model, and an open question in `GOALS.md`),
+the client-portal family and the OAuth and provider-webhook routes (all
+outside `/api/v1`, so they don't fit the client's `base_url` or its token),
+`POST /quickbooks/settings` (a registered route with no controller method,
+so it 500s), and a few company and user extras.
 
 **`COVERAGE.md` is the detailed inventory** — every wrapped endpoint, every
-gap, and the reason for each gap. The main remaining gaps are the
-integration and auth routes, import/export, the client-portal routes (which
-are not under `/api/v1`, so they don't fit the client's `base_url`), and a
-few company and user extras.
+gap, and the reason for each gap.
 
 Keep `COVERAGE.md` current when adding or removing an endpoint: it names
 exact counts and route groups, so it goes stale quietly. The three coverage

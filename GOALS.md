@@ -137,9 +137,14 @@ without checking — see the note in `CLAUDE.md`.
 
 ## Roadmap: closing the coverage gaps
 
-All 34 `Route::resource` groups are wrapped. Full coverage is the target, so
-`COVERAGE.md`'s gap list is a to-do list, not a permanent boundary. Roughly
-in order of value over effort:
+**This roadmap is now closed** — every item below is done, and every route an
+API-token client can reach is wrapped. It is kept rather than deleted because
+several entries record what an item's original reasoning got wrong, which is
+worth more than the fact that it shipped. What is still unwrapped is in
+`COVERAGE.md`'s gap list, with a reason per entry, and none of it is a
+sequenced to-do any more.
+
+The items ran roughly in order of value over effort:
 
 **Done:** multipart document uploads, for the 16 resources that have the
 route (`upload_client`, `upload_invoice`, …). This earlier claimed it would
@@ -184,15 +189,32 @@ lines of macro. What the item had actually described is the client-portal
 family in `routes/client.php`, which is genuinely token-less, is not under
 `/api/v1`, and stays unwrapped for that reason.
 
-Still to do:
+**Done:** import/export and the integrations — `/import`, `/preimport`,
+`/import_json`, `/export`, `edocument/upload`, einvoice (17 routes),
+QuickBooks, Stripe, calendar, Yodlee and Nordigen (38 methods). This was the
+last item, so **the roadmap is closed**: every route in `routes/api.php` that
+an API-token client can reach is now wrapped. It did land in pieces, as the
+item predicted — import/export first, then the integrations.
 
-6. **Import/export and the integrations** — `/import`, `/export`,
-   `edocument/upload`, Stripe, QuickBooks, einvoice (17 routes), Yodlee,
-   Nordigen, calendar. The largest block and the least SDK-shaped; worth
-   doing last and possibly in pieces.
+As the item also predicted, it is the least SDK-shaped part of the API, and
+the typing reflects that: most of these return `serde_json::Value`, because
+their replies are pass-throughs from Storecove, Stripe, Yodlee or GoCardless,
+or arrays assembled for Invoice Ninja's React client. That is a deliberate
+application of the rule in goal 2 — a wrong concrete type is a hard decode
+error, where `Value` is lossless — and not a shortcut to revisit without a
+reason. `COVERAGE.md` records it as the crate's largest untyped surface.
 
-Keep `COVERAGE.md` current as these land — it names exact counts, so it goes
-stale quietly.
+Two things in this block are *not* wrapped, and cannot be. The OAuth legs of
+the QuickBooks and calendar flows take no API token and answer with browser
+redirects, so connecting an account stays a browser flow; the methods here
+operate a connection that already exists. And `POST /quickbooks/settings` is
+a registered route with no controller method behind it, so it 500s — there is
+nothing to wrap until upstream adds the handler.
+
+What remains unwrapped is now only what each entry in `COVERAGE.md`'s gap
+list explains: the auth routes (an open question below), the client-portal
+family, the provider webhooks, and a few company and user extras. Keep that
+file current — it names exact counts, so it goes stale quietly.
 
 ## Open questions
 
