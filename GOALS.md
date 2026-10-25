@@ -85,6 +85,38 @@ Invoice Ninja account to contribute.
   comparison in `COVERAGE.md`. The divergences — JSON instead of
   `form_params`, keeping the whole validation `errors` map, exposing bulk
   `download` only on PDF-rendering entities — are deliberate.
+- **No CLI, and no binary at all, in this package.** A command-line client
+  over this library is a reasonable thing to want — it is the obvious way to
+  ask "what does this endpoint actually return", which matters here because
+  the e-invoicing and integration methods are typed as
+  `serde_json::Value` and were verified against mocks rather than a live
+  service. It belongs in a sibling crate (`invoiceninjars-cli`) in a
+  workspace, not in this one, for three reasons:
+
+  - *Dependencies.* Every entry in `Cargo.toml` is there because the library
+    needs it, and three of the five are already in the tree via `reqwest`.
+    An argument parser would be the first dependency that is not
+    load-bearing for the library, along with the project's first optional
+    dependency and first `[features]` section.
+  - *MSRV.* Not a break today — `clap` 4.6.7 declares 1.85, under this
+    crate's 1.88 (checked 2026-10-25). The cost is the coupling: a second
+    floor that moves on someone else's release schedule, in a project where
+    three places must agree on the number and a documented procedure exists
+    for rechecking it. A separate crate keeps it out of the library's graph.
+  - *Versioning.* Pre-1.0 this crate tells callers to pin an exact version
+    and expect breaking changes in minor releases. A CLI's flags are a
+    compatibility surface too, and one version number would force the two to
+    move in lockstep. `cargo install invoiceninjars` silently needing
+    `--features cli` is a smaller version of the same problem.
+
+  For ad-hoc probing, `examples/` already covers it and costs nothing:
+  `capture_shapes`, `seed_sample_data` and `smoke_test` are CLI-shaped
+  programs configured from environment variables, with the
+  `IN_SMOKE_WRITE_HOST` guard to copy for anything that writes.
+
+  Same shape of decision as the `updated_at` sync engine in the open
+  questions: a different product from this crate, recorded so the option is
+  not forgotten.
 - **No sync/blocking API.** Async only.
 - **No identity map, lazy relationship loading, or transparent entity
   caching.** Three separate refusals with one theme — the client stays
