@@ -25,8 +25,9 @@ pub struct RecurringInvoice {
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub status_id: String,
     /// How often the invoice recurs. Invoice Ninja returns this as an integer
-    /// enum (1 = daily, 2 = weekly, … ), not a human-readable string.
-    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    /// enum (1 = daily, 2 = weekly, … ), not a human-readable string. A real
+    /// server sends it as a numeric string; both decode.
+    #[serde(default, deserialize_with = "super::common::int_or_numeric_string")]
     pub frequency_id: i64,
     /// Number of cycles left to send; `-1` means it recurs indefinitely.
     #[serde(default, deserialize_with = "super::common::null_to_default")]

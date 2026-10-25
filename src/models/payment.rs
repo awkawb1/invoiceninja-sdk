@@ -38,7 +38,9 @@ pub struct Payment {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaymentInvoice {
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub invoice_id: String,
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub amount: f64,
 
     #[serde(flatten)]

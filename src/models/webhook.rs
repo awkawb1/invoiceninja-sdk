@@ -13,8 +13,13 @@ pub struct Webhook {
     /// The URL Invoice Ninja posts to.
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub target_url: String,
-    /// Payload format: `JSON` or `UBL`.
-    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    /// Payload format: `JSON` or `UBL`. Omitted when empty: the server turns
+    /// `""` into `NULL` and fails the insert on a non-null column (a 500).
+    #[serde(
+        default,
+        deserialize_with = "super::common::null_to_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub format: String,
 
     #[serde(flatten)]

@@ -28,7 +28,7 @@ pub struct RecurringExpense {
     /// Integer enum matching [`RecurringInvoice::frequency_id`].
     ///
     /// [`RecurringInvoice::frequency_id`]: super::RecurringInvoice::frequency_id
-    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    #[serde(default, deserialize_with = "super::common::int_or_numeric_string")]
     pub frequency_id: i64,
     /// Number of cycles left; `-1` means it recurs indefinitely.
     #[serde(default, deserialize_with = "super::common::null_to_default")]

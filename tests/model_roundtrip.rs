@@ -584,23 +584,24 @@ fn company_keeps_settings_untyped_and_preserves_toggles() {
     assert_eq!(round_tripped["settings"]["timezone_id"], "15");
 }
 
-/// System logs are the one resource whose timestamps are date strings
-/// rather than integers.
+/// The spec says system-log timestamps are date strings; a real server sends
+/// integers, as it does everywhere else.
 #[test]
-fn system_log_timestamps_are_strings() {
+fn system_log_timestamps_are_integers() {
     let log: SystemLog = serde_json::from_value(json!({
         "id": "sl1",
         "event_id": 30,
         "category_id": 1,
         "type_id": 300,
         "log": {"message": "gateway declined"},
-        "created_at": "2026-10-01 12:00:00",
-        "updated_at": "2026-10-01 12:00:00",
+        "created_at": 1792869488,
+        "updated_at": 1792869489,
     }))
     .unwrap();
 
     assert_eq!(log.event_id, 30);
-    assert_eq!(log.created_at, "2026-10-01 12:00:00");
+    assert_eq!(log.created_at, 1792869488);
+    assert_eq!(log.updated_at, 1792869489);
     assert_eq!(log.log["message"], "gateway declined");
 }
 

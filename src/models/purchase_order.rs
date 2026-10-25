@@ -23,7 +23,14 @@ pub struct PurchaseOrder {
     pub po_number: String,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub quote_number: String,
-    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    /// Omitted when empty: the server turns `""` into `NULL` and then fails
+    /// the insert on a non-null column with a 500, so a new purchase order
+    /// must leave it out and take the server's default.
+    #[serde(
+        default,
+        deserialize_with = "super::common::null_to_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub status_id: String,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub date: String,

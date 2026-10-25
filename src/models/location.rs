@@ -18,7 +18,14 @@ pub struct Location {
     pub state: String,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub postal_code: String,
-    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    /// Omitted when empty: the server validates it as an integer, so an unset
+    /// `""` is rejected with a 422 and a default `Location` could not be
+    /// created.
+    #[serde(
+        default,
+        deserialize_with = "super::common::null_to_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub country_id: String,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
     pub user_id: String,

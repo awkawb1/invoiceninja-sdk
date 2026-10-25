@@ -3,8 +3,9 @@ use serde_json::{Map, Value};
 
 /// A server-side log entry (gateway responses, mail failures, and so on).
 ///
-/// Note that unlike every other resource, this one's `created_at` and
-/// `updated_at` are returned as date **strings**, not integer timestamps.
+/// The OpenAPI spec declares `created_at` and `updated_at` as date strings,
+/// but a real server (5.13.50) sends integer timestamps like every other
+/// resource.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemLog {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -23,9 +24,9 @@ pub struct SystemLog {
     #[serde(default)]
     pub log: Value,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
-    pub created_at: String,
+    pub created_at: i64,
     #[serde(default, deserialize_with = "super::common::null_to_default")]
-    pub updated_at: String,
+    pub updated_at: i64,
 
     #[serde(flatten)]
     pub extra: Map<String, Value>,
