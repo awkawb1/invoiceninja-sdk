@@ -1,3 +1,4 @@
+mod activity;
 mod bank_integration;
 mod bank_transaction;
 mod bank_transaction_rule;
@@ -35,12 +36,15 @@ mod user;
 mod vendor;
 mod webhook;
 
+pub use activity::{Activity, ActivityFeedEntry, ActivityRef};
 pub use bank_integration::BankIntegration;
 pub use bank_transaction::BankTransaction;
 pub use bank_transaction_rule::BankTransactionRule;
 pub use client::{Client, ClientContact};
 pub use client_gateway_token::ClientGatewayToken;
-pub use common::{BulkRequest, ItemResponse, ListParams, ListResponse, Meta, Pagination};
+pub use common::{
+    BulkRequest, ItemResponse, ListParams, ListResponse, MessageResponse, Meta, Pagination,
+};
 pub use company::Company;
 pub use company_gateway::CompanyGateway;
 pub use company_token::CompanyToken;
@@ -61,7 +65,7 @@ pub use recurring_expense::RecurringExpense;
 pub use recurring_invoice::{RecurringInvoice, RecurringQuote};
 pub use search::{SearchHit, SearchResults};
 pub use statics::{Currency, DateFormat, StaticItem, Statics};
-pub use subscription::Subscription;
+pub use subscription::{Subscription, SubscriptionStep};
 pub use system_log::SystemLog;
 pub use tag::Tag;
 pub use task::Task;

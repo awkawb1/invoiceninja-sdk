@@ -55,3 +55,16 @@ pub struct Subscription {
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
+
+/// One step of the subscription purchase flow and the steps it depends on,
+/// as returned by `GET /subscriptions/steps`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubscriptionStep {
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    pub id: String,
+    #[serde(default, deserialize_with = "super::common::null_to_default")]
+    pub dependencies: Vec<String>,
+
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}

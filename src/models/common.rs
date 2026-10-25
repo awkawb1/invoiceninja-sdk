@@ -154,6 +154,32 @@ where
     }
 }
 
+/// Deserializes an integer that may arrive as a JSON number or as a numeric
+/// string.
+///
+/// The OpenAPI spec calls `frequency_id` a number on recurring invoices and
+/// expenses, but a real 5.13.50 server returns the string `"5"`. A strict
+/// `i64` made that a hard decode error *after* the record had already been
+/// created. A string that is not a whole number is still an error.
+pub(crate) fn int_or_numeric_string<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<Value>::deserialize(deserializer)? {
+        None | Some(Value::Null) => Ok(0),
+        Some(Value::Number(n)) => n
+            .as_i64()
+            .ok_or_else(|| serde::de::Error::custom(format!("expected a whole number, got {n}"))),
+        Some(Value::String(s)) if s.is_empty() => Ok(0),
+        Some(Value::String(s)) => s.trim().parse().map_err(|_| {
+            serde::de::Error::custom(format!("expected a whole number, got string `{s}`"))
+        }),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected a whole number or numeric string, got {other}"
+        ))),
+    }
+}
+
 /// Body for a bulk action (`POST /{resource}/bulk`).
 ///
 /// The action set varies by resource; `archive`, `restore`, and `delete` work
@@ -173,4 +199,16 @@ impl BulkRequest {
             ids: ids.iter().map(|id| id.as_ref().to_string()).collect(),
         }
     }
+}
+
+/// The `{"message": "..."}` body that action endpoints answer with.
+///
+/// `message` is defaulted so a reply that carries none still decodes.
+/// Anything else the server adds is kept in `extra`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MessageResponse {
+    #[serde(default, deserialize_with = "null_to_default")]
+    pub message: String,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
