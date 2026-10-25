@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use invoiceninjars::models::*;
+use invoiceninja_sdk::models::*;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 

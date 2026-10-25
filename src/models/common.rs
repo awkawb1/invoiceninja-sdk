@@ -104,7 +104,7 @@ impl ListParams {
     /// not cover.
     ///
     /// ```
-    /// use invoiceninjars::models::ListParams;
+    /// use invoiceninja_sdk::models::ListParams;
     ///
     /// let params = ListParams::new()
     ///     .per_page(100)

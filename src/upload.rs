@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 /// question in `GOALS.md`.
 ///
 /// ```
-/// use invoiceninjars::FileUpload;
+/// use invoiceninja_sdk::FileUpload;
 ///
 /// let file = FileUpload::new("receipt.pdf", b"%PDF-1.4 ...".to_vec())
 ///     .mime("application/pdf");

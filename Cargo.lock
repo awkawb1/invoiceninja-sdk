@@ -528,7 +528,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "invoiceninjars"
+name = "invoiceninja-sdk"
 version = "0.1.0"
 dependencies = [
  "percent-encoding",

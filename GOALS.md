@@ -90,7 +90,7 @@ Invoice Ninja account to contribute.
   ask "what does this endpoint actually return", which matters here because
   the e-invoicing and integration methods are typed as
   `serde_json::Value` and were verified against mocks rather than a live
-  service. It belongs in a sibling crate (`invoiceninjars-cli`) in a
+  service. It belongs in a sibling crate (`invoiceninja-sdk-cli`) in a
   workspace, not in this one, for three reasons:
 
   - *Dependencies.* Every entry in `Cargo.toml` is there because the library
@@ -106,7 +106,7 @@ Invoice Ninja account to contribute.
   - *Versioning.* Pre-1.0 this crate tells callers to pin an exact version
     and expect breaking changes in minor releases. A CLI's flags are a
     compatibility surface too, and one version number would force the two to
-    move in lockstep. `cargo install invoiceninjars` silently needing
+    move in lockstep. `cargo install invoiceninja-sdk` silently needing
     `--features cli` is a smaller version of the same problem.
 
   For ad-hoc probing, `examples/` already covers it and costs nothing:

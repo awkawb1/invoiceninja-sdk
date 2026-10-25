@@ -1,5 +1,5 @@
 [package]
-name = "invoiceninjars"
+name = "invoiceninja-sdk"
 version = "0.1.0"
 edition = "2021"
 # Set by the dependency graph rather than by this crate's own code: reqwest

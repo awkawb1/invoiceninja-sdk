@@ -1,4 +1,4 @@
-# invoiceninjars
+# invoiceninja-sdk
 
 An async Rust client for the [Invoice Ninja](https://www.invoiceninja.com/) v5 API.
 
@@ -33,7 +33,7 @@ nix develop .#msrv --command cargo test
 ## Usage
 
 ```rust
-use invoiceninjars::{InvoiceNinjaClient, models::ListParams};
+use invoiceninja_sdk::{InvoiceNinjaClient, models::ListParams};
 
 // Hosted app:
 let client = InvoiceNinjaClient::hosted(std::env::var("IN_API_TOKEN")?)?;
@@ -75,7 +75,7 @@ with exponential backoff. Both are configurable:
 
 ```rust
 use std::time::Duration;
-use invoiceninjars::RetryPolicy;
+use invoiceninja_sdk::RetryPolicy;
 
 let client = InvoiceNinjaClient::hosted(token)?
     .with_timeout(Duration::from_secs(300))
@@ -164,7 +164,7 @@ only way the API creates one. Sixteen resources support it, as
 `upload_client`, `upload_invoice`, `upload_expense`, and so on:
 
 ```rust
-use invoiceninjars::FileUpload;
+use invoiceninja_sdk::FileUpload;
 
 let receipt = FileUpload::new("receipt.pdf", std::fs::read("receipt.pdf")?)
     .mime("application/pdf");

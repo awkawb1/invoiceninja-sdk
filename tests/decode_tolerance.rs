@@ -11,7 +11,7 @@
 //! A wrong *type* is deliberately not covered: that is meant to be a hard
 //! error, so it is not something to absorb.
 
-use invoiceninjars::models::*;
+use invoiceninja_sdk::models::*;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 

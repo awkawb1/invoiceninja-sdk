@@ -219,8 +219,8 @@ impl InvoiceNinjaClient {
     /// It used to be refused locally with a misleading `InvalidToken`.
     ///
     /// ```no_run
-    /// # fn main() -> invoiceninjars::Result<()> {
-    /// use invoiceninjars::InvoiceNinjaClient;
+    /// # fn main() -> invoiceninja_sdk::Result<()> {
+    /// use invoiceninja_sdk::InvoiceNinjaClient;
     ///
     /// let client = InvoiceNinjaClient::hosted(std::env::var("IN_API_TOKEN").unwrap())?
     ///     .with_api_password(std::env::var("IN_API_PASSWORD").unwrap())?;
@@ -1367,8 +1367,8 @@ impl InvoiceNinjaClient {
     /// for — [`Invoice`], [`Quote`], [`Credit`], or [`PurchaseOrder`]:
     ///
     /// ```no_run
-    /// # async fn run(client: &invoiceninjars::InvoiceNinjaClient) -> invoiceninjars::Result<()> {
-    /// use invoiceninjars::models::Invoice;
+    /// # async fn run(client: &invoiceninja_sdk::InvoiceNinjaClient) -> invoiceninja_sdk::Result<()> {
+    /// use invoiceninja_sdk::models::Invoice;
     /// use serde_json::json;
     ///
     /// let invoice: Invoice = client

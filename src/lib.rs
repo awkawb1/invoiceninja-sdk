@@ -1,9 +1,9 @@
 //! An async Rust client for the [Invoice Ninja](https://www.invoiceninja.com/) v5 API.
 //!
 //! ```no_run
-//! use invoiceninjars::{InvoiceNinjaClient, models::ListParams};
+//! use invoiceninja_sdk::{InvoiceNinjaClient, models::ListParams};
 //!
-//! # async fn run() -> invoiceninjars::Result<()> {
+//! # async fn run() -> invoiceninja_sdk::Result<()> {
 //! let client = InvoiceNinjaClient::new(
 //!     "https://invoicing.co/api/v1",
 //!     std::env::var("IN_API_TOKEN").unwrap(),

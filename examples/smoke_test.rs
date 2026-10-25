@@ -37,10 +37,10 @@ use std::fmt::Display;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use invoiceninjars::models::{
+use invoiceninja_sdk::models::{
     Client, ListParams, Location, PurchaseOrder, RecurringInvoice, Vendor, Webhook,
 };
-use invoiceninjars::{Error, FileUpload, InvoiceNinjaClient};
+use invoiceninja_sdk::{Error, FileUpload, InvoiceNinjaClient};
 use serde::Serialize;
 use serde_json::{json, Value};
 

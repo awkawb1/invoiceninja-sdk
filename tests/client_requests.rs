@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use invoiceninjars::{models::ListParams, Error, InvoiceNinjaClient};
+use invoiceninja_sdk::{models::ListParams, Error, InvoiceNinjaClient};
 use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -547,7 +547,7 @@ async fn ping_accepts_an_empty_success_body() {
 
 // --- retry and backoff --------------------------------------------------
 
-use invoiceninjars::RetryPolicy;
+use invoiceninja_sdk::RetryPolicy;
 
 /// Fast policy so the tests do not actually sleep for seconds.
 fn quick_retry() -> RetryPolicy {
@@ -751,7 +751,7 @@ async fn retried_requests_keep_their_body_and_headers() {
         .mount(&server)
         .await;
 
-    let body = invoiceninjars::models::Client {
+    let body = invoiceninja_sdk::models::Client {
         name: "Acme".into(),
         ..Default::default()
     };
@@ -965,7 +965,7 @@ async fn send_email_unwraps_the_data_envelope() {
         .mount(&server)
         .await;
 
-    let invoice: invoiceninjars::models::Invoice = client(&server)
+    let invoice: invoiceninja_sdk::models::Invoice = client(&server)
         .send_email(&json!({ "entity": "invoice", "entity_id": "inv1" }))
         .await
         .expect("should return the refreshed entity");
@@ -1179,7 +1179,7 @@ async fn no_budget_means_only_max_retries_bounds_the_call() {
 
 // --- document uploads ---------------------------------------------------
 
-use invoiceninjars::FileUpload;
+use invoiceninja_sdk::FileUpload;
 
 fn pdf(name: &str) -> FileUpload {
     FileUpload::new(name, b"%PDF-1.4 fake".to_vec()).mime("application/pdf")

@@ -1,5 +1,5 @@
 {
-  description = "invoiceninjars: a Rust client for the Invoice Ninja v5 API";
+  description = "invoiceninja-sdk: a Rust client for the Invoice Ninja v5 API";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -69,7 +69,7 @@
         # the "no credentials needed" property in CLAUDE.md) — just not as
         # a source of an installable artifact.
         packages.default = rustPlatform.buildRustPackage {
-          pname = "invoiceninjars";
+          pname = "invoiceninja-sdk";
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
           src = self;
           cargoLock.lockFile = ./Cargo.lock;

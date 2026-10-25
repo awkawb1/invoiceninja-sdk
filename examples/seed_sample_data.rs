@@ -18,7 +18,7 @@
 use std::future::Future;
 use std::process::ExitCode;
 
-use invoiceninjars::{Error, InvoiceNinjaClient};
+use invoiceninja_sdk::{Error, InvoiceNinjaClient};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
@@ -34,7 +34,7 @@ fn describe(error: &Error) -> String {
 }
 
 /// Runs one creation, reporting the outcome and returning the new id.
-async fn step<T>(name: &str, call: impl Future<Output = invoiceninjars::Result<T>>) -> Option<T> {
+async fn step<T>(name: &str, call: impl Future<Output = invoiceninja_sdk::Result<T>>) -> Option<T> {
     match call.await {
         Ok(created) => {
             println!("  created  {name}");

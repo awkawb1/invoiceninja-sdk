@@ -1,8 +1,8 @@
-use invoiceninjars::models::ListParams;
-use invoiceninjars::InvoiceNinjaClient;
+use invoiceninja_sdk::models::ListParams;
+use invoiceninja_sdk::InvoiceNinjaClient;
 
 #[tokio::main]
-async fn main() -> invoiceninjars::Result<()> {
+async fn main() -> invoiceninja_sdk::Result<()> {
     let base_url =
         std::env::var("IN_BASE_URL").unwrap_or_else(|_| "https://invoicing.co/api/v1".into());
     let token = std::env::var("IN_API_TOKEN").expect("set IN_API_TOKEN");

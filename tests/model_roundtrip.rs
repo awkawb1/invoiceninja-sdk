@@ -1,4 +1,4 @@
-use invoiceninjars::models::{
+use invoiceninja_sdk::models::{
     BankIntegration, BankTransaction, BankTransactionRule, BulkRequest, Client, ClientGatewayToken,
     Company, CompanyGateway, CompanyToken, Credit, Design, Document, Expense, ExpenseCategory,
     GroupSetting, HealthCheck, Invoice, ListParams, ListResponse, Location, PaymentTerm, Project,

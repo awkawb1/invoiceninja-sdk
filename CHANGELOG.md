@@ -112,6 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The crate is renamed from `invoiceninjars` to `invoiceninja-sdk`**, to
+  match the repository it has always lived in
+  (`gitea.awkawb.cloud/awkawb/invoiceninja-sdk`). Depend on it as
+  `invoiceninja-sdk` in `Cargo.toml`, and import it as `invoiceninja_sdk`
+  (Cargo lowercases a package name's hyphens to underscores for the crate
+  identifier) — every `use invoiceninjars::...` becomes
+  `use invoiceninja_sdk::...`. Not yet published to crates.io, so this
+  lands before the name was ever claimed there.
 - `statics`, `search`, and `health_check` return concrete types instead of
   being generic over `T: DeserializeOwned`.
 - `send_email` now unwraps the `data` envelope, so `T` is the entity
