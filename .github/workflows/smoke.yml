@@ -1,0 +1,47 @@
+name: Smoke test
+
+# Runs `examples/smoke_test.rs` against a real Invoice Ninja instance. Manual
+# only: it needs an instance the runner can reach and credentials for it, and
+# the offline suite in `ci.yml` is what gates merges. This is for catching the
+# places where the real server disagrees with the upstream source the mocks
+# were written from.
+#
+# Repository secrets required: IN_BASE_URL (the API root, ending /api/v1) and
+# IN_API_TOKEN. Point them at a disposable instance, never at production.
+on:
+  workflow_dispatch:
+    inputs:
+      write_host:
+        description: >-
+          Leave empty for the read-only tier (GET requests only). To also run
+          the write tier, type the host of IN_BASE_URL (e.g. `localhost`). It
+          creates and deletes records, so the instance must be disposable.
+        required: false
+        default: ''
+        type: string
+      runner:
+        description: Runner label; use a self-hosted one if the instance is not public.
+        required: false
+        default: ubuntu-latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      # Same pin as `ci.yml` and `devVersion` in flake.nix.
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - run: cargo run --example smoke_test
+        env:
+          IN_BASE_URL: ${{ secrets.IN_BASE_URL }}
+          IN_API_TOKEN: ${{ secrets.IN_API_TOKEN }}
+          # The program refuses to write unless this equals the host in
+          # IN_BASE_URL, so a mistyped host skips the write tier.
+          IN_SMOKE_WRITE_HOST: ${{ inputs.write_host }}
+          # Optional. Only used inside the write tier, where it enables the
+          # password tier (merge two throwaway clients, purge the survivor).
+          IN_API_PASSWORD: ${{ secrets.IN_API_PASSWORD }}
