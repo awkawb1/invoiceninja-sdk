@@ -332,6 +332,42 @@ async fn read_checks(client: &InvoiceNinjaClient, raw: &Raw, report: &mut Report
         Err(e) => report.fail("live_preview", describe(&e)),
     }
 
+    // The invitation-key download, on the singular `invoice/{key}/download`
+    // route. Worth a real-server check for one specific reason: this was
+    // listed as unwrappable for months on the belief that it takes no auth
+    // token, and the route file says otherwise. If that reading is still
+    // wrong, the token we send is either ignored or rejected, and this is
+    // where it shows. The key comes from the invoice's own `invitations`
+    // array, which the list route returns without an `include`.
+    //
+    // Only the PDF, not the e-document: `download_e_invoice` renders from
+    // the company's e-invoice settings, so an instance with none configured
+    // would fail here for a reason that is not the client's fault.
+    match client.list_invoices(&small).await {
+        Ok(rows) => match rows.iter().find_map(|i| {
+            i.extra
+                .get("invitations")?
+                .as_array()?
+                .first()?
+                .get("key")?
+                .as_str()
+        }) {
+            Some(key) => match client.download_invoice_by_invitation_key(key).await {
+                Ok(pdf) => report.check(
+                    "download_invoice_by_invitation_key",
+                    pdf.starts_with(b"%PDF"),
+                    format!("{} byte(s), starts with the PDF magic", pdf.len()),
+                ),
+                Err(e) => report.fail("download_invoice_by_invitation_key", describe(&e)),
+            },
+            None => report.pass(
+                "download_invoice_by_invitation_key",
+                "skipped: no invoice with an invitation on this instance",
+            ),
+        },
+        Err(e) => report.fail("download_invoice_by_invitation_key", describe(&e)),
+    }
+
     list!(report, "list_clients", client.list_clients(&small));
     list!(report, "list_invoices", client.list_invoices(&small));
     list!(report, "list_quotes", client.list_quotes(&small));
@@ -817,11 +853,12 @@ async fn password_checks(client: &InvoiceNinjaClient, report: &mut Report, passw
     // ModelNotFoundException to a 400 and keeps 404 for a missing route. The
     // message is checked too, so a 400 raised for some other reason fails.
     match client.get_client(&keep).await {
-        Err(Error::Api { status, message, .. })
-            if status.as_u16() == 400 && message.contains("No query results") =>
-        {
-            report.pass("get_client after purge", "400 no query results, the row is gone")
-        }
+        Err(Error::Api {
+            status, message, ..
+        }) if status.as_u16() == 400 && message.contains("No query results") => report.pass(
+            "get_client after purge",
+            "400 no query results, the row is gone",
+        ),
         Err(e) => report.fail("get_client after purge", describe(&e)),
         Ok(_) => report.fail("get_client after purge", "still readable after a purge"),
     }

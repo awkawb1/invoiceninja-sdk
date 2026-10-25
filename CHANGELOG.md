@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Invitation-key downloads, eight methods:
+  `download_invoice_by_invitation_key` and
+  `download_e_invoice_by_invitation_key`, plus the same pair for quotes,
+  credits, and purchase orders. These take the per-contact invitation key
+  from a client-portal link rather than a record id, and return the PDF or
+  the XML e-document as bytes. Prefer them over the id-based `download_*`
+  when the document is for a particular contact: the server renders in that
+  contact's locale, so a client with contacts in two languages gets a
+  different document per key. An unknown key is a `400` carrying `no record
+  found`. `COVERAGE.md` previously listed these as out of scope on the
+  grounds that they need no auth token; that was a misreading — they are
+  ordinary authenticated `/api/v1` routes.
 - Document uploads: `upload_client`, `upload_invoice`, `upload_expense`, and
   thirteen more, one for each resource with an `/{id}/upload` route. They
   take a `Vec<FileUpload>` and an optional `is_public`, and return the

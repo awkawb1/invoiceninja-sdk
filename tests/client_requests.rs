@@ -2221,3 +2221,147 @@ async fn notes_are_not_replayed_on_5xx() {
         .expect_err("500");
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
+
+// --- invitation-key downloads -------------------------------------------
+
+/// Mounts one GET route answering 200 with raw bytes. Expects exactly one
+/// request, so a call that built a different path fails when the server drops.
+async fn raw_route_server(route: &str, body: &'static [u8]) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(route))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    server
+}
+
+/// One test per invitation-key download. The route each mounts is the one
+/// `routes/api.php` registers — note the singular entity segment, which is
+/// what these would get wrong if the plural CRUD path were reused.
+macro_rules! invitation_download_test {
+    ($name:ident, $route:literal, $body:literal, |$c:ident| $call:expr) => {
+        #[tokio::test]
+        async fn $name() {
+            let server = raw_route_server($route, $body).await;
+            let $c = client(&server);
+            let got = $call.await.expect("the download should succeed");
+            assert_eq!(got, $body);
+        }
+    };
+}
+
+invitation_download_test!(
+    download_invoice_by_invitation_key_hits_the_singular_route,
+    "/invoice/key1/download",
+    b"%PDF-1.4",
+    |c| c.download_invoice_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_e_invoice_by_invitation_key_hits_the_singular_route,
+    "/invoice/key1/download_e_invoice",
+    b"<?xml version=\"1.0\"?>",
+    |c| c.download_e_invoice_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_quote_by_invitation_key_hits_the_singular_route,
+    "/quote/key1/download",
+    b"%PDF-1.4",
+    |c| c.download_quote_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_e_quote_by_invitation_key_hits_the_singular_route,
+    "/quote/key1/download_e_quote",
+    b"<?xml version=\"1.0\"?>",
+    |c| c.download_e_quote_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_credit_by_invitation_key_hits_the_singular_route,
+    "/credit/key1/download",
+    b"%PDF-1.4",
+    |c| c.download_credit_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_e_credit_by_invitation_key_hits_the_singular_route,
+    "/credit/key1/download_e_credit",
+    b"<?xml version=\"1.0\"?>",
+    |c| c.download_e_credit_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_purchase_order_by_invitation_key_hits_the_singular_route,
+    "/purchase_order/key1/download",
+    b"%PDF-1.4",
+    |c| c.download_purchase_order_by_invitation_key("key1")
+);
+
+invitation_download_test!(
+    download_e_purchase_order_by_invitation_key_hits_the_singular_route,
+    "/purchase_order/key1/download_e_purchase_order",
+    b"<?xml version=\"1.0\"?>",
+    |c| c.download_e_purchase_order_by_invitation_key("key1")
+);
+
+/// These are authenticated like any other call, which is the whole reason
+/// they fit the client at all. A token-less variant would need a separate
+/// entry point.
+#[tokio::test]
+async fn an_invitation_download_still_sends_the_api_token() {
+    let server = raw_route_server("/invoice/key1/download", b"%PDF-1.4").await;
+    client(&server)
+        .download_invoice_by_invitation_key("key1")
+        .await
+        .unwrap();
+
+    let headers = &server.received_requests().await.unwrap()[0].headers;
+    assert_eq!(headers["X-Api-Token"], "test-token");
+}
+
+/// An unknown key is a `400` carrying `no record found`, not a `404`: the
+/// controllers return that directly rather than raising
+/// `ModelNotFoundException`.
+#[tokio::test]
+async fn an_unknown_invitation_key_is_a_400_not_a_404() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/invoice/gone/download"))
+        .respond_with(
+            ResponseTemplate::new(400).set_body_json(json!({ "message": "no record found" })),
+        )
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .download_invoice_by_invitation_key("gone")
+        .await
+        .expect_err("an unknown key should fail");
+    assert!(
+        matches!(&err, Error::Api { status, message, .. }
+            if status.as_u16() == 400 && message == "no record found"),
+        "{err:?}"
+    );
+}
+
+/// `invoice//download` is a different route, so an empty key must not reach
+/// the server.
+#[tokio::test]
+async fn an_empty_invitation_key_is_refused_before_the_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"%PDF-1.4".to_vec()))
+        .mount(&server)
+        .await;
+
+    let err = client(&server)
+        .download_invoice_by_invitation_key("")
+        .await
+        .expect_err("an empty key must not be sent");
+    assert!(matches!(err, Error::InvalidPathSegment(_)), "got {err:?}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}

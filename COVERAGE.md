@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 325 methods in total.
+not a resource group). 333 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -126,6 +126,47 @@ action, which streams one merged PDF. It can't go through `bulk_*` for the
 same reason: the response isn't JSON.
 
 Convenience wrappers: `mark_invoice_sent` and `mark_invoice_paid`.
+
+## Invitation-key downloads
+
+The same four resources also answer two downloads keyed by **invitation key**
+rather than record id — the per-contact token that appears in a client-portal
+link. Eight routes, all wrapped:
+
+| Route | Method | Returns |
+| --- | --- | --- |
+| `GET /invoice/{key}/download` | `download_invoice_by_invitation_key` | `application/pdf` |
+| `GET /invoice/{key}/download_e_invoice` | `download_e_invoice_by_invitation_key` | `application/xml` |
+| `GET /quote/{key}/download` | `download_quote_by_invitation_key` | `application/pdf` |
+| `GET /quote/{key}/download_e_quote` | `download_e_quote_by_invitation_key` | `application/xml` |
+| `GET /credit/{key}/download` | `download_credit_by_invitation_key` | `application/pdf` |
+| `GET /credit/{key}/download_e_credit` | `download_e_credit_by_invitation_key` | `application/xml` |
+| `GET /purchase_order/{key}/download` | `download_purchase_order_by_invitation_key` | `application/pdf` |
+| `GET /purchase_order/{key}/download_e_purchase_order` | `download_e_purchase_order_by_invitation_key` | `application/xml` |
+
+Two things about these are easy to get wrong, and both are pinned by tests.
+The entity segment is **singular** — `invoice/…`, not `invoices/…` — which
+is the only place in the API that departs from the plural CRUD path. And
+despite being the download a *client* follows, they are **authenticated**:
+the routes sit inside `routes/api.php`'s `api/v1` group under its
+`token_auth` middleware, so they need the API token like any other call.
+
+This file previously listed them as unwrapped on the grounds that they take
+no auth token. That was wrong — it conflated them with the client-portal
+routes in `routes/client.php` (`/client/invoice/{key}/download_pdf` and
+friends), which are a separate route family, are not under `/api/v1`, and
+remain unwrapped for that reason.
+
+The smoke test's read tier exercises the invoice PDF, taking a key from the
+`invitations` array the list route already returns. The `download_e_*` four
+are not exercised: they render from the company's e-invoice settings, which a
+test instance need not have configured.
+
+An unknown or deleted key is a `400` carrying `no record found`. The
+controllers return that directly rather than raising
+`ModelNotFoundException`, so the message differs from the `No query results
+for model` text a missing record produces elsewhere, but the status is the
+same 400.
 
 ## Document uploads
 
@@ -346,12 +387,13 @@ check `routes/api.php`).
   `/migration/start`
 - **Invoice extras** — `delivery_note`, `payment_schedule`,
   `update_reminders`
-- **Public invitation-key downloads** — `GET /{entity}/{invitation_key}/download`
-  for `invoice`, `quote`, `credit`, and `purchase_order` (note the singular
-  path segment), plus the matching e-invoice variants `download_e_invoice`,
-  `download_e_quote`, `download_e_credit`,
-  `download_e_purchase_order`. These are invitation-key based and take no
-  auth token, so they don't fit the client's authenticated request path.
+- **Client-portal invitation downloads** — the `routes/client.php` family:
+  `/client/invoice/{key}/download_pdf`, the `download_e_*` variants for
+  quotes and credits, `/client/{entity}/{key}/download`, and
+  `/client/documents/{hash}/hashed`. These are not under `/api/v1`, so they
+  don't fit a `base_url` that ends there. Note these are *not* the
+  invitation-key downloads documented above, which are authenticated
+  `/api/v1` routes and are wrapped.
 - **Integrations** — Stripe, QuickBooks, Apple in-app purchase, PostMark,
   einvoice (17 routes), calendar_connection, self-update, templates, hooks,
   Yodlee (`/yodlee/*`), Nordigen (`/nordigen/institutions`)
@@ -406,7 +448,8 @@ top of a shared `BaseEntity` offering `all`, `get`, `create`, `update`,
 `recurring_quotes`, `recurring_expenses`, `bank_transaction_rules`,
 `company_gateways`, `designs`, `locations`, `tags`, `task_schedulers`,
 `tokens`, `system_logs`, documents, per-entity actions (`mark_sent`,
-`mark_paid`, `clone_to_*`, …), per-entity PDF download, reports, charts,
+`mark_paid`, `clone_to_*`, …), per-entity PDF download by id and by
+invitation key, the XML e-documents, reports, charts,
 search, `send_email`, `refund_payment`, `ping`, `health_check`, automatic
 pagination (`list_all_*`), and `X-API-PASSWORD` support for the
 password-protected routes.

@@ -157,6 +157,10 @@ Beyond "does it decode", the read tier fetches the same rows raw and fails
 if a typed row lost a key (`keys kept: <resource>`, names only, never
 values), and the write tier creates a purchase order, location, webhook and
 recurring invoice from bare `Default` models, since those are what broke.
+The read tier also downloads an invoice by invitation key, which is there to
+re-check the claim that those routes are token-authenticated; the matching
+`download_e_*` is left out, since it renders from e-invoice settings a test
+instance need not have.
 With `IN_API_PASSWORD` set as well, a password tier merges two throwaway
 clients and purges the survivor (a real, permanent delete); it was run
 against a disposable 5.13.50 instance on 2026-10-24 and all four checks
@@ -241,6 +245,17 @@ changes, doc tweaks) does not need an entry.
   elsewhere without checking `routes/api.php`. In particular the official PHP
   SDK puts bulk `download` on *every* resource, which is wrong; only
   PDF-rendering entities support it.
+- `invitation_download_methods!` generates `download_{x}_by_invitation_key`
+  and `download_e_{x}_by_invitation_key` for the same four resources. Two
+  traps, both pinned by tests: the entity segment is **singular**
+  (`invoice/{key}/download`, the only route family in the API that is), and
+  the routes are **authenticated** despite being the link a client follows —
+  they sit in `routes/api.php`'s `api/v1` group under `token_auth`. The
+  genuinely token-less invitation downloads are the separate client-portal
+  routes in `routes/client.php`, which are not under `/api/v1` and are not
+  wrapped. `COVERAGE.md` used to list the `/api/v1` eight as unwrapped for
+  that reason, having conflated the two families; don't reintroduce the
+  claim.
 - `upload_methods!` generates `upload_{x}` for the 16 resources with a
   `/{id}/upload` route; documents can only be created this way, because
   `DocumentController::store` is an empty stub upstream (hence no
@@ -322,18 +337,20 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 325 methods: 30 resources with CRUD + bulk, 3 with CRUD
-only, 4 with entity actions, 16 with document uploads, and 69 hand-written.
+(which isn't one). 333 methods: 30 resources with CRUD + bulk, 3 with CRUD
+only, 4 with entity actions, 4 with invitation-key downloads, 16 with
+document uploads, and 69 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
-the four action-capable resources, `report`, `chart`, `search`, `statics`,
-`send_email`, `refund_payment`, `ping`, and `health_check`.
+the four action-capable resources, their invitation-key PDF and e-document
+downloads, `report`, `chart`, `search`, `statics`, `send_email`,
+`refund_payment`, `ping`, and `health_check`.
 
 **`COVERAGE.md` is the detailed inventory** — every wrapped endpoint, every
 gap, and the reason for each gap. The main remaining gaps are the
-integration and auth routes, import/export, the public invitation-key
-downloads (which take no auth token, so they don't fit the client's
-request path), and a few company and user extras.
+integration and auth routes, import/export, the client-portal routes (which
+are not under `/api/v1`, so they don't fit the client's `base_url`), and a
+few company and user extras.
 
 Keep `COVERAGE.md` current when adding or removing an endpoint: it names
 exact counts and route groups, so it goes stale quietly. The three coverage

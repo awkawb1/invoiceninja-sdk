@@ -767,6 +767,52 @@ macro_rules! entity_action_methods {
     };
 }
 
+/// Generates the two invitation-key downloads for one entity.
+///
+/// A different route family from [`entity_action_methods`], in two ways that
+/// are easy to trip over. The path segment is **singular** — `invoice/…`,
+/// not `invoices/…`, the only place in the API that does this. And the value
+/// in it is an *invitation key*, the per-contact token that appears in a
+/// client-portal link, not a record id; passing a record id gets the 400
+/// below, since no invitation has that key.
+///
+/// They are still authenticated. The routes sit inside `routes/api.php`'s
+/// `api/v1` group, under its `token_auth` middleware, so they go through the
+/// client's ordinary request path like any other call. The invitation
+/// downloads that genuinely take no token are the separate client-portal
+/// routes in `routes/client.php`, which are not wrapped — they are not under
+/// `/api/v1`, so they do not fit a `base_url` that ends there.
+macro_rules! invitation_download_methods {
+    ($download:ident, $download_e:ident, $path:literal, $e_action:literal) => {
+        /// Downloads the rendered PDF for the record an invitation key
+        /// points at.
+        ///
+        /// This renders for one *contact* rather than one record, which is
+        /// the reason to prefer it over the id-based `download_*` method:
+        /// upstream sets the locale from the contact the invitation belongs
+        /// to, so a client with two contacts in different languages gets a
+        /// different document per key.
+        ///
+        /// An unknown or already-deleted key is a `400` carrying
+        /// `no record found`, not a `404`.
+        pub async fn $download(&self, invitation_key: &str) -> Result<Vec<u8>> {
+            self.get_raw(&format!("{}/{}/download", $path, seg(invitation_key)?))
+                .await
+        }
+
+        /// Downloads the XML e-document for the record an invitation key
+        /// points at.
+        ///
+        /// The bytes are `application/xml`, not a PDF; which standard they
+        /// follow (Factur-X, ZUGFeRD, Peppol, …) depends on the company's
+        /// e-invoice settings. Errors are as above.
+        pub async fn $download_e(&self, invitation_key: &str) -> Result<Vec<u8>> {
+            self.get_raw(&format!("{}/{}/{}", $path, seg(invitation_key)?, $e_action))
+                .await
+        }
+    };
+}
+
 impl InvoiceNinjaClient {
     resource_methods!(
         list_clients,
@@ -1050,6 +1096,34 @@ impl InvoiceNinjaClient {
         download_purchase_orders,
         "purchase_orders",
         PurchaseOrder
+    );
+
+    invitation_download_methods!(
+        download_invoice_by_invitation_key,
+        download_e_invoice_by_invitation_key,
+        "invoice",
+        "download_e_invoice"
+    );
+
+    invitation_download_methods!(
+        download_quote_by_invitation_key,
+        download_e_quote_by_invitation_key,
+        "quote",
+        "download_e_quote"
+    );
+
+    invitation_download_methods!(
+        download_credit_by_invitation_key,
+        download_e_credit_by_invitation_key,
+        "credit",
+        "download_e_credit"
+    );
+
+    invitation_download_methods!(
+        download_purchase_order_by_invitation_key,
+        download_e_purchase_order_by_invitation_key,
+        "purchase_order",
+        "download_e_purchase_order"
     );
 }
 

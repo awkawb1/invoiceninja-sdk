@@ -159,22 +159,33 @@ suggests. That is the case for keeping the real-server tier.
 
 **Done:** the password-protected actions — client purge and merge, vendor
 merge, company purge, user invite and purge, and the blank-user template (8
-methods). They are verified against the upstream controllers and mocks only;
-the smoke test has a password tier for the first real-server run
-(`IN_API_PASSWORD`), which has not happened yet. The claim here that
-`with_api_password` already made them reachable was not quite true: a
-password with a control character was refused locally.
+methods). The smoke test's password tier (`IN_API_PASSWORD`) has since been
+run against a disposable 5.13.50 instance, on 2026-10-24, with all four
+checks passing — but only after its own post-purge assertion was fixed, which
+had checked for a 404 and passed solely because it had never been run. The
+claim here that `with_api_password` already made them reachable was not quite
+true: a password with a control character was refused locally.
 
 **Done:** activities, email history and previews (14 methods, two new
 models). The email history stays raw JSON, since no instance here had sent
 mail to take a shape from; promoting it to a model needs a sample. Several
 previews are unverified against a real server (see `COVERAGE.md`).
 
+**Done:** the invitation-key downloads — the PDF and the XML e-document for
+invoices, quotes, credits and purchase orders, keyed by a contact's
+invitation key (8 methods). This item used to read "eight routes that take no
+auth token, so they do not fit the authenticated request path and need a
+different entry point." That was wrong on every count, and wrong in the way
+goal 6 exists to catch: the premise came from reading the route *names*
+rather than the route file. All eight sit inside `routes/api.php`'s `api/v1`
+group under its `token_auth` middleware — the controllers' own OpenAPI blocks
+declare `X-API-TOKEN` — so they needed no new entry point and were two dozen
+lines of macro. What the item had actually described is the client-portal
+family in `routes/client.php`, which is genuinely token-less, is not under
+`/api/v1`, and stays unwrapped for that reason.
+
 Still to do:
 
-5. **Public invitation-key downloads** — eight routes that take no auth
-   token, so they do not fit the authenticated request path and need a
-   different entry point.
 6. **Import/export and the integrations** — `/import`, `/export`,
    `edocument/upload`, Stripe, QuickBooks, einvoice (17 routes), Yodlee,
    Nordigen, calendar. The largest block and the least SDK-shaped; worth
