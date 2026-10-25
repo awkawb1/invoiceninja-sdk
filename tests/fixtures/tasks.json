@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "assigned_user_id": "",
+      "client_id": "",
+      "created_at": 0,
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "date": "",
+      "description": "",
+      "documents": [],
+      "due_date": "",
+      "duration": 0,
+      "estimated_duration": null,
+      "id": "",
+      "invoice_id": "",
+      "is_date_based": false,
+      "is_deleted": false,
+      "is_running": false,
+      "meta": {},
+      "number": "",
+      "project_id": "",
+      "rate": 0,
+      "status_id": "",
+      "status_order": null,
+      "status_sort_order": 0,
+      "tags": [],
+      "time_log": "",
+      "updated_at": 0,
+      "user_id": ""
+    }
+  ]
+}

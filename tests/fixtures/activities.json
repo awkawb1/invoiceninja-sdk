@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "activity_type_id": "",
+      "client_id": "",
+      "company_id": "",
+      "contact_id": "",
+      "created_at": 0,
+      "credit_id": "",
+      "expense_id": "",
+      "id": "",
+      "invoice_id": "",
+      "ip": "",
+      "is_system": false,
+      "notes": "",
+      "payment_id": "",
+      "purchase_order_id": "",
+      "quote_id": "",
+      "recurring_expense_id": "",
+      "recurring_invoice_id": "",
+      "task_id": "",
+      "token_id": "",
+      "updated_at": 0,
+      "user_id": "",
+      "vendor_contact_id": "",
+      "vendor_id": ""
+    }
+  ]
+}

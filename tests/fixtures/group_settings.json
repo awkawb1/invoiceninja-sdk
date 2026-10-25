@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "created_at": 0,
+      "documents": [],
+      "id": "",
+      "is_deleted": false,
+      "name": "",
+      "settings": {
+        "entity": ""
+      },
+      "updated_at": 0
+    }
+  ]
+}

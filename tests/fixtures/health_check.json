@@ -1,0 +1,37 @@
+{
+  "api_version": "",
+  "cache_enabled": false,
+  "env_writable": false,
+  "exchange_rate_api_not_configured": false,
+  "exec": false,
+  "extensions": [
+    {
+      "gd": false
+    }
+  ],
+  "file_permissions": "",
+  "flutter_renderer": "",
+  "is_docker": false,
+  "jobs_pending": 0,
+  "mail_mailer": "",
+  "open_basedir": false,
+  "pdf_engine": "",
+  "pending_migrations": false,
+  "phantom_enabled": false,
+  "php_version": {
+    "current_php_cli_version": "",
+    "current_php_version": "",
+    "is_okay": false,
+    "memory_limit": "",
+    "minimum_php_version": ""
+  },
+  "queue": "",
+  "queue_data": {
+    "failed": 0,
+    "last_error": "",
+    "pending": 0
+  },
+  "simple_db_check": false,
+  "system_health": false,
+  "trailing_slash": false
+}

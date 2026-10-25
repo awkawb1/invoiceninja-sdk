@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "company_id": "",
+      "created_at": 0,
+      "event_id": "",
+      "format": "",
+      "headers": [],
+      "id": "",
+      "is_deleted": false,
+      "rest_method": "",
+      "target_url": "",
+      "updated_at": 0,
+      "user_id": ""
+    }
+  ]
+}

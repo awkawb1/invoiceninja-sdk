@@ -1,0 +1,185 @@
+{
+  "bulk_updates": {
+    "client": [
+      ""
+    ],
+    "expense": [
+      ""
+    ],
+    "recurring_invoice": [
+      ""
+    ],
+    "task": [
+      ""
+    ]
+  },
+  "countries": [
+    {
+      "capital": "",
+      "citizenship": "",
+      "country_code": "",
+      "currency": "",
+      "currency_code": "",
+      "currency_sub_unit": "",
+      "decimal_separator": "",
+      "eea": false,
+      "full_name": "",
+      "id": "",
+      "iso_3166_2": "",
+      "iso_3166_3": "",
+      "name": "",
+      "region_code": "",
+      "sub_region_code": "",
+      "swap_currency_symbol": false,
+      "swap_postal_code": false,
+      "thousand_separator": ""
+    }
+  ],
+  "currencies": [
+    {
+      "code": "",
+      "decimal_separator": "",
+      "exchange_rate": 0,
+      "id": "",
+      "name": "",
+      "precision": 0,
+      "swap_currency_symbol": false,
+      "symbol": "",
+      "thousand_separator": ""
+    }
+  ],
+  "date_formats": [
+    {
+      "format": "",
+      "format_dart": "",
+      "format_moment": "",
+      "id": ""
+    }
+  ],
+  "datetime_formats": [
+    {
+      "format": "",
+      "format_dart": "",
+      "format_moment": "",
+      "id": ""
+    }
+  ],
+  "gateways": [
+    {
+      "created_at": 0,
+      "default_gateway_type_id": "",
+      "fields": "",
+      "id": "",
+      "is_offsite": false,
+      "is_secure": false,
+      "key": "",
+      "name": "",
+      "options": {
+        "1": {
+          "refund": false,
+          "token_billing": false,
+          "webhooks": [
+            ""
+          ]
+        },
+        "2": {
+          "refund": false,
+          "token_billing": false,
+          "webhooks": [
+            ""
+          ]
+        }
+      },
+      "provider": "",
+      "site_url": "",
+      "sort_order": 0,
+      "updated_at": 0,
+      "visible": false
+    }
+  ],
+  "industries": [
+    {
+      "id": "",
+      "name": ""
+    }
+  ],
+  "languages": [
+    {
+      "id": "",
+      "locale": "",
+      "name": ""
+    }
+  ],
+  "license_key": false,
+  "payment_types": [
+    {
+      "gateway_type_id": 0,
+      "id": "",
+      "name": ""
+    }
+  ],
+  "sizes": [
+    {
+      "id": "",
+      "name": ""
+    }
+  ],
+  "templates": {
+    "invoice": {
+      "body": "",
+      "subject": ""
+    },
+    "partial_payment": {
+      "body": "",
+      "subject": ""
+    },
+    "payment": {
+      "body": "",
+      "subject": ""
+    },
+    "payment_failed": {
+      "body": "",
+      "subject": ""
+    },
+    "purchase_order": {
+      "body": "",
+      "subject": ""
+    },
+    "quote": {
+      "body": "",
+      "subject": ""
+    },
+    "quote_reminder1": {
+      "body": "",
+      "subject": ""
+    },
+    "reminder1": {
+      "body": "",
+      "subject": ""
+    },
+    "reminder2": {
+      "body": "",
+      "subject": ""
+    },
+    "reminder3": {
+      "body": "",
+      "subject": ""
+    },
+    "reminder_endless": {
+      "body": "",
+      "subject": ""
+    },
+    "statement": {
+      "body": "",
+      "subject": ""
+    }
+  },
+  "timezones": [
+    {
+      "id": "",
+      "location": "",
+      "name": "",
+      "utc_offset": 0
+    }
+  ]
+}

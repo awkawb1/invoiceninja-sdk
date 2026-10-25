@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "created_at": 0,
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "email": "",
+      "email_verified_at": 0,
+      "first_name": "",
+      "google_2fa_secret": false,
+      "has_password": false,
+      "id": "",
+      "is_deleted": false,
+      "language_id": "",
+      "last_confirmed_email_address": "",
+      "last_login": 0,
+      "last_name": "",
+      "oauth_provider_id": "",
+      "oauth_user_token": "",
+      "passkey_count": 0,
+      "passkey_enabled": false,
+      "phone": "",
+      "referral_code": "",
+      "referral_meta": {
+        "enterprise": 0,
+        "free": 0,
+        "pro": 0
+      },
+      "settings": {
+        "calendar_connection": {
+          "email": "",
+          "status": ""
+        }
+      },
+      "signature": "",
+      "updated_at": 0,
+      "user_logged_in_notification": false,
+      "verified_phone_number": false
+    }
+  ]
+}

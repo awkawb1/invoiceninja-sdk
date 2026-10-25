@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "activity_type_id": 0,
+      "created_at": 0,
+      "hashed_id": "",
+      "id": "",
+      "ip": "",
+      "notes": "",
+      "purchase_order": {
+        "hashed_id": "",
+        "label": ""
+      },
+      "user": {
+        "hashed_id": "",
+        "label": ""
+      },
+      "vendor": {
+        "hashed_id": "",
+        "label": ""
+      }
+    }
+  ]
+}

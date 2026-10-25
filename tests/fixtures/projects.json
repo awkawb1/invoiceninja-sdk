@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "assigned_user_id": "",
+      "budgeted_amount": 0,
+      "budgeted_hours": 0,
+      "client_id": "",
+      "color": "",
+      "created_at": 0,
+      "current_hours": 0,
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "documents": [],
+      "due_date": "",
+      "id": "",
+      "is_deleted": false,
+      "name": "",
+      "number": "",
+      "private_notes": "",
+      "public_notes": "",
+      "tags": [],
+      "task_rate": 0,
+      "updated_at": 0,
+      "user_id": ""
+    }
+  ]
+}

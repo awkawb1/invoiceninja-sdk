@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "address1": "",
+      "address2": "",
+      "archived_at": 0,
+      "city": "",
+      "client_id": "",
+      "country_id": "",
+      "created_at": 0,
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "id": "",
+      "is_deleted": false,
+      "is_shipping_location": false,
+      "name": "",
+      "postal_code": "",
+      "state": "",
+      "tax_data": {},
+      "updated_at": 0,
+      "user_id": "",
+      "vendor_id": ""
+    }
+  ]
+}

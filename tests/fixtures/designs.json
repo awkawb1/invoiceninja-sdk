@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "created_at": 0,
+      "design": {
+        "body": "",
+        "footer": "",
+        "header": "",
+        "includes": "",
+        "product": "",
+        "task": ""
+      },
+      "entities": "",
+      "id": "",
+      "is_active": false,
+      "is_custom": false,
+      "is_deleted": false,
+      "is_free": false,
+      "is_template": false,
+      "name": "",
+      "updated_at": 0
+    }
+  ]
+}

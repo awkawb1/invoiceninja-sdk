@@ -1,0 +1,63 @@
+{
+  "data": [
+    {
+      "address1": "",
+      "address2": "",
+      "archived_at": 0,
+      "assigned_user_id": "",
+      "city": "",
+      "classification": "",
+      "contacts": [
+        {
+          "archived_at": 0,
+          "can_sign": false,
+          "cc_only": false,
+          "created_at": 0,
+          "custom_value1": "",
+          "custom_value2": "",
+          "custom_value3": "",
+          "custom_value4": "",
+          "email": "",
+          "first_name": "",
+          "id": "",
+          "is_primary": false,
+          "last_login": 0,
+          "last_name": "",
+          "link": "",
+          "password": "",
+          "phone": "",
+          "send_email": false,
+          "updated_at": 0
+        }
+      ],
+      "country_id": "",
+      "created_at": 0,
+      "currency_id": "",
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "display_name": "",
+      "documents": [],
+      "id": "",
+      "id_number": "",
+      "is_deleted": false,
+      "is_tax_exempt": false,
+      "language_id": "",
+      "last_login": 0,
+      "name": "",
+      "number": "",
+      "phone": "",
+      "postal_code": "",
+      "private_notes": "",
+      "public_notes": "",
+      "routing_id": "",
+      "state": "",
+      "tags": [],
+      "updated_at": 0,
+      "user_id": "",
+      "vat_number": "",
+      "website": ""
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "data": [
+    {
+      "amount": 0,
+      "applied": 0,
+      "archived_at": 0,
+      "assigned_user_id": "",
+      "client_contact_id": "",
+      "client_id": "",
+      "company_gateway_id": "",
+      "created_at": 0,
+      "currency_id": "",
+      "custom_value1": "",
+      "custom_value2": "",
+      "custom_value3": "",
+      "custom_value4": "",
+      "date": "",
+      "documents": [],
+      "exchange_currency_id": "",
+      "exchange_rate": 0,
+      "gateway_type_id": "",
+      "id": "",
+      "invitation_id": "",
+      "is_deleted": false,
+      "is_manual": false,
+      "number": "",
+      "paymentables": [
+        {
+          "amount": 0,
+          "archived_at": 0,
+          "created_at": 0,
+          "id": "",
+          "invoice_id": "",
+          "payment_id": "",
+          "refunded": 0,
+          "updated_at": 0
+        }
+      ],
+      "private_notes": "",
+      "project_id": "",
+      "refunded": 0,
+      "status_id": "",
+      "tags": [],
+      "transaction_id": "",
+      "transaction_reference": "",
+      "type_id": "",
+      "updated_at": 0,
+      "user_id": "",
+      "vendor_id": ""
+    }
+  ]
+}

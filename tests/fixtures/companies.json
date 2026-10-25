@@ -1,0 +1,1059 @@
+{
+  "data": [
+    {
+      "archived_at": 0,
+      "auto_start_tasks": false,
+      "calculate_expense_tax_by_amount": false,
+      "calculate_taxes": false,
+      "client_can_register": false,
+      "client_registration_fields": [
+        {
+          "key": "",
+          "required": false,
+          "visible": false
+        }
+      ],
+      "company_key": "",
+      "convert_expense_currency": false,
+      "convert_payment_currency": false,
+      "convert_products": false,
+      "convert_rate_to_client": false,
+      "created_at": 0,
+      "custom_fields": {},
+      "custom_surcharge_taxes1": false,
+      "custom_surcharge_taxes2": false,
+      "custom_surcharge_taxes3": false,
+      "custom_surcharge_taxes4": false,
+      "default_password_timeout": 0,
+      "default_quantity": false,
+      "default_task_is_date_based": false,
+      "documents": [],
+      "e_invoice": {},
+      "enable_applying_payments": false,
+      "enable_modules": false,
+      "enable_product_cost": false,
+      "enable_product_discount": false,
+      "enable_product_quantity": false,
+      "enable_shop_api": false,
+      "enabled_expense_tax_rates": 0,
+      "enabled_item_tax_rates": 0,
+      "enabled_modules": 0,
+      "enabled_tax_rates": 0,
+      "expense_amount_is_pretax": false,
+      "expense_inclusive_taxes": false,
+      "expense_mailbox": "",
+      "expense_mailbox_active": false,
+      "fill_products": false,
+      "first_day_of_week": "",
+      "first_month_of_year": "",
+      "google_analytics_key": "",
+      "google_analytics_url": "",
+      "has_e_invoice_certificate": false,
+      "has_e_invoice_certificate_passphrase": false,
+      "hide_empty_columns_on_pdf": false,
+      "id": "",
+      "inbound_mailbox_allow_clients": false,
+      "inbound_mailbox_allow_company_users": false,
+      "inbound_mailbox_allow_unknown": false,
+      "inbound_mailbox_allow_vendors": false,
+      "inbound_mailbox_blacklist": "",
+      "inbound_mailbox_whitelist": "",
+      "industry_id": "",
+      "inventory_notification_threshold": 0,
+      "invoice_expense_documents": false,
+      "invoice_task_datelog": false,
+      "invoice_task_documents": false,
+      "invoice_task_hours": false,
+      "invoice_task_item_description": false,
+      "invoice_task_lock": false,
+      "invoice_task_project": false,
+      "invoice_task_project_header": false,
+      "invoice_task_timelog": false,
+      "is_disabled": false,
+      "is_large": false,
+      "legal_entity_id": null,
+      "mark_expenses_invoiceable": false,
+      "mark_expenses_paid": false,
+      "markdown_email_enabled": false,
+      "markdown_enabled": false,
+      "matomo_id": "",
+      "matomo_url": "",
+      "notify_vendor_when_paid": false,
+      "oauth_password_required": false,
+      "origin_tax_data": {},
+      "portal_domain": "",
+      "portal_mode": "",
+      "quickbooks": null,
+      "report_include_deleted": false,
+      "report_include_drafts": false,
+      "session_timeout": 0,
+      "settings": {
+        "accept_client_input_quote_approval": false,
+        "address1": "",
+        "address2": "",
+        "all_pages_footer": false,
+        "all_pages_header": false,
+        "allow_billable_task_items": false,
+        "auto_archive_invoice": false,
+        "auto_archive_invoice_cancelled": false,
+        "auto_archive_quote": false,
+        "auto_bill": "",
+        "auto_bill_date": "",
+        "auto_bill_standard_invoices": false,
+        "auto_convert_quote": false,
+        "auto_email_invoice": false,
+        "bcc_email": "",
+        "besr_id": "",
+        "brevo_secret": "",
+        "city": "",
+        "classification": "",
+        "client_can_register": false,
+        "client_initiated_payments": false,
+        "client_initiated_payments_minimum": 0,
+        "client_manual_payment_notification": false,
+        "client_number_counter": 0,
+        "client_number_pattern": "",
+        "client_online_payment_notification": false,
+        "client_portal_allow_over_payment": false,
+        "client_portal_allow_under_payment": false,
+        "client_portal_enable_uploads": false,
+        "client_portal_privacy_policy": "",
+        "client_portal_terms": "",
+        "client_portal_under_payment_minimum": 0,
+        "company_gateway_ids": "",
+        "company_logo": "",
+        "company_logo_size": "",
+        "counter_number_applied": "",
+        "counter_padding": 0,
+        "country_id": "",
+        "credit_design_id": "",
+        "credit_footer": "",
+        "credit_number_counter": 0,
+        "credit_number_pattern": "",
+        "credit_terms": "",
+        "currency_id": "",
+        "custom_message_dashboard": "",
+        "custom_message_paid_invoice": "",
+        "custom_message_unapproved_quote": "",
+        "custom_message_unpaid_invoice": "",
+        "custom_sending_email": "",
+        "custom_value1": "",
+        "custom_value2": "",
+        "custom_value3": "",
+        "custom_value4": "",
+        "date_format_id": "",
+        "default_expense_payment_type_id": "",
+        "default_task_rate": 0,
+        "delivery_note_design_id": "",
+        "document_email_attachment": false,
+        "documents_public_by_default": false,
+        "e_expense_forward_email": "",
+        "e_invoice_forward_email": "",
+        "e_invoice_type": "",
+        "e_quote_type": "",
+        "email": "",
+        "email_alignment": "",
+        "email_from_name": "",
+        "email_quote_subject_reminder1": "",
+        "email_quote_template_reminder1": "",
+        "email_sending_method": "",
+        "email_signature": "",
+        "email_style": "",
+        "email_style_custom": "",
+        "email_subject_credit": "",
+        "email_subject_custom1": "",
+        "email_subject_custom2": "",
+        "email_subject_custom3": "",
+        "email_subject_invoice": "",
+        "email_subject_payment": "",
+        "email_subject_payment_failed": "",
+        "email_subject_payment_partial": "",
+        "email_subject_purchase_order": "",
+        "email_subject_quote": "",
+        "email_subject_reminder1": "",
+        "email_subject_reminder2": "",
+        "email_subject_reminder3": "",
+        "email_subject_reminder_endless": "",
+        "email_subject_statement": "",
+        "email_template_credit": "",
+        "email_template_custom1": "",
+        "email_template_custom2": "",
+        "email_template_custom3": "",
+        "email_template_invoice": "",
+        "email_template_payment": "",
+        "email_template_payment_failed": "",
+        "email_template_payment_partial": "",
+        "email_template_purchase_order": "",
+        "email_template_quote": "",
+        "email_template_reminder1": "",
+        "email_template_reminder2": "",
+        "email_template_reminder3": "",
+        "email_template_reminder_endless": "",
+        "email_template_statement": "",
+        "embed_documents": false,
+        "enable_client_portal": false,
+        "enable_client_portal_dashboard": false,
+        "enable_client_portal_password": false,
+        "enable_client_portal_tasks": false,
+        "enable_client_profile_update": false,
+        "enable_e_invoice": false,
+        "enable_email_markup": false,
+        "enable_quote_reminder1": false,
+        "enable_rappen_rounding": false,
+        "enable_reminder1": false,
+        "enable_reminder2": false,
+        "enable_reminder3": false,
+        "enable_reminder_endless": false,
+        "endless_reminder_frequency_id": "",
+        "entity_send_time": 0,
+        "expense_number_counter": 0,
+        "expense_number_pattern": "",
+        "font_size": 0,
+        "france_reporting_enabled": false,
+        "france_reporting_schedule": "",
+        "global_tag_inheritance": false,
+        "gmail_sending_user_id": "",
+        "hide_empty_columns_on_pdf": false,
+        "hide_paid_to_date": false,
+        "id_number": "",
+        "inclusive_taxes": false,
+        "invoice_design_id": "",
+        "invoice_footer": "",
+        "invoice_labels": "",
+        "invoice_number_counter": 0,
+        "invoice_number_pattern": "",
+        "invoice_taxes": 0,
+        "invoice_terms": "",
+        "language_id": "",
+        "late_fee_amount1": 0,
+        "late_fee_amount2": 0,
+        "late_fee_amount3": 0,
+        "late_fee_endless_amount": 0,
+        "late_fee_endless_percent": 0,
+        "late_fee_percent1": 0,
+        "late_fee_percent2": 0,
+        "late_fee_percent3": 0,
+        "lock_invoices": "",
+        "mailgun_domain": "",
+        "mailgun_endpoint": "",
+        "mailgun_secret": "",
+        "merge_e_invoice_to_pdf": false,
+        "military_time": false,
+        "name": "",
+        "num_days_reminder1": 0,
+        "num_days_reminder2": 0,
+        "num_days_reminder3": 0,
+        "page_layout": "",
+        "page_numbering": false,
+        "page_numbering_alignment": "",
+        "page_size": "",
+        "payment_email_all_contacts": false,
+        "payment_flow": "",
+        "payment_number_counter": 0,
+        "payment_number_pattern": "",
+        "payment_receipt_design_id": "",
+        "payment_refund_design_id": "",
+        "payment_terms": "",
+        "payment_type_id": "",
+        "pdf_email_attachment": false,
+        "pdf_variables": {
+          "client_details": [
+            ""
+          ],
+          "company_address": [
+            ""
+          ],
+          "company_details": [
+            ""
+          ],
+          "credit_details": [
+            ""
+          ],
+          "delivery_note_columns": [
+            ""
+          ],
+          "invoice_details": [
+            ""
+          ],
+          "product_columns": [
+            ""
+          ],
+          "product_quote_columns": [
+            ""
+          ],
+          "purchase_order_details": [
+            ""
+          ],
+          "quote_details": [
+            ""
+          ],
+          "statement_credit_columns": [
+            ""
+          ],
+          "statement_details": [
+            ""
+          ],
+          "statement_invoice_columns": [
+            ""
+          ],
+          "statement_payment_columns": [
+            ""
+          ],
+          "statement_unapplied_columns": [
+            ""
+          ],
+          "task_columns": [
+            ""
+          ],
+          "total_columns": [
+            ""
+          ],
+          "vendor_details": [
+            ""
+          ]
+        },
+        "phone": "",
+        "portal_custom_css": "",
+        "portal_custom_footer": "",
+        "portal_custom_head": "",
+        "portal_custom_js": "",
+        "portal_design_id": "",
+        "postal_code": "",
+        "postmark_secret": "",
+        "preference_product_notes_for_html_view": false,
+        "primary_color": "",
+        "primary_font": "",
+        "project_number_counter": 0,
+        "project_number_pattern": "",
+        "purchase_order_design_id": "",
+        "purchase_order_footer": "",
+        "purchase_order_number_counter": 0,
+        "purchase_order_number_pattern": "",
+        "purchase_order_public_notes": "",
+        "purchase_order_terms": "",
+        "qr_iban": "",
+        "quote_design_id": "",
+        "quote_footer": "",
+        "quote_late_fee_amount1": 0,
+        "quote_late_fee_percent1": 0,
+        "quote_num_days_reminder1": 0,
+        "quote_number_applied": "",
+        "quote_number_counter": 0,
+        "quote_number_pattern": "",
+        "quote_schedule_reminder1": "",
+        "quote_terms": "",
+        "recurring_expense_number_counter": 0,
+        "recurring_expense_number_pattern": "",
+        "recurring_invoice_number_counter": 0,
+        "recurring_invoice_number_pattern": "",
+        "recurring_number_prefix": "",
+        "recurring_quote_number_counter": 0,
+        "recurring_quote_number_pattern": "",
+        "reminder_send_time": 0,
+        "reply_to_email": "",
+        "reply_to_name": "",
+        "require_invoice_signature": false,
+        "require_purchase_order_signature": false,
+        "require_quote_signature": false,
+        "reset_counter_date": "",
+        "reset_counter_frequency_id": "",
+        "schedule_reminder1": "",
+        "schedule_reminder2": "",
+        "schedule_reminder3": "",
+        "secondary_color": "",
+        "secondary_font": "",
+        "send_email_on_mark_paid": false,
+        "send_reminders": false,
+        "ses_access_key": "",
+        "ses_from_address": "",
+        "ses_region": "",
+        "ses_secret_key": "",
+        "ses_topic_arn": "",
+        "shared_invoice_credit_counter": false,
+        "shared_invoice_quote_counter": false,
+        "show_accept_invoice_terms": false,
+        "show_accept_quote_terms": false,
+        "show_all_tasks_client_portal": "",
+        "show_currency_code": false,
+        "show_email_footer": false,
+        "show_paid_stamp": false,
+        "show_pdfhtml_on_mobile": false,
+        "show_shipping_address": false,
+        "show_task_item_description": false,
+        "signature_on_pdf": false,
+        "skip_automatic_email_with_peppol": false,
+        "state": "",
+        "statement_design_id": "",
+        "sync_invoice_quote_columns": false,
+        "task_number_counter": 0,
+        "task_number_pattern": "",
+        "task_round_to_nearest": 0,
+        "task_round_up": false,
+        "tax_name1": "",
+        "tax_name2": "",
+        "tax_name3": "",
+        "tax_rate1": 0,
+        "tax_rate2": 0,
+        "tax_rate3": 0,
+        "ticket_number_counter": 0,
+        "ticket_number_pattern": "",
+        "timezone_id": "",
+        "translations": {},
+        "ubl_email_attachment": false,
+        "unlock_invoice_documents_after_payment": false,
+        "use_credits_payment": "",
+        "use_unapplied_payment": "",
+        "valid_until": "",
+        "vat_number": "",
+        "vendor_number_counter": 0,
+        "vendor_number_pattern": "",
+        "vendor_portal_enable_uploads": false,
+        "website": ""
+      },
+      "show_product_cost": false,
+      "show_product_details": false,
+      "show_task_end_date": false,
+      "show_tasks_table": false,
+      "size_id": "",
+      "slack_webhook_url": "",
+      "smtp_encryption": "",
+      "smtp_host": "",
+      "smtp_local_domain": "",
+      "smtp_password": "",
+      "smtp_port": 0,
+      "smtp_username": "",
+      "smtp_verify_peer": false,
+      "stock_notification": false,
+      "stop_on_unpaid_recurring": false,
+      "subdomain": "",
+      "tax_data": {
+        "acts_as_receiver": false,
+        "acts_as_sender": false,
+        "model": null,
+        "regions": {
+          "AD": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "AD": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false,
+            "tax_threshold": 0
+          },
+          "AU": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "AU": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false,
+            "tax_threshold": 0
+          },
+          "EU": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "AT": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "BE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "BG": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "CY": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "CZ": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "DE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "DK": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "EE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ES": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ES-CE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ES-CN": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ES-ML": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "FI": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "FR": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0.0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "GR": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "HR": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "HU": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IS": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IT": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "LI": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0.0,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "LT": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "LU": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "LV": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "MT": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "NL": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "NO": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "PL": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "PT": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "RO": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "SE": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "SI": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0.0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "SK": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false,
+            "tax_threshold": 0
+          },
+          "SG": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "SG": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false,
+            "tax_threshold": 0
+          },
+          "UK": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "GB": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "GB-NIR": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IM": {
+                "apply_tax": false,
+                "reduced_tax_rate": 0,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false,
+            "tax_threshold": 0
+          },
+          "US": {
+            "has_sales_above_threshold": false,
+            "subregions": {
+              "AK": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "AL": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "AR": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "AZ": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "CA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "CO": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "CT": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "DE": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "FL": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "GA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "HI": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ID": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "IL": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "IN": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "KS": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "KY": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "LA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "MA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "MD": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "ME": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "MI": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "MN": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "MO": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "MS": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "MT": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "NC": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "ND": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "NE": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "NH": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "NJ": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "NM": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "NV": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "NY": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "OH": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "OK": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "OR": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "PA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "RI": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "SC": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "SD": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "TN": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "TX": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "UT": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "VA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "VT": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "WA": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0.0,
+                "vat_number": ""
+              },
+              "WI": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "WV": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              },
+              "WY": {
+                "apply_tax": false,
+                "tax_name": "",
+                "tax_rate": 0,
+                "vat_number": ""
+              }
+            },
+            "tax_all_subregions": false
+          }
+        },
+        "seller_subregion": "",
+        "version": ""
+      },
+      "track_inventory": false,
+      "update_products": false,
+      "updated_at": 0,
+      "use_comma_as_decimal_place": false,
+      "use_credits_payment": "",
+      "use_quote_terms_on_conversion": false
+    }
+  ]
+}
