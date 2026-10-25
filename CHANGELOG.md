@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the file twice. This is the only way the API creates a document, so there
   is no `create_document`. Enables reqwest's `multipart` feature, which adds
   `mime`, `mime_guess`, and `unicase` and leaves the MSRV at 1.88.
+- Per-resource extras, nineteen methods: `retry_webhook`, `sort_tasks`,
+  `set_default_design`, `set_default_client_gateway_token`,
+  `subscription_steps`, `check_subscription_steps`, the company-gateway
+  `test`/`clone`/`import_customers` trio, four bank-integration and
+  bank-transaction routes, and six client routes (`update_client_tax_data`,
+  `client_show_settings`, `client_peppol_discovery`, `check_client_vat`,
+  `client_vat_status`, `client_documents`). Each is a `POST` unless noted in
+  `COVERAGE.md`, so none is retried on a 5xx. Adds `MessageResponse` for the
+  `{"message": ...}` replies and `SubscriptionStep`.
+- Password-protected actions, eight methods: `purge_client`, `merge_clients`,
+  `merge_vendors`, `purge_company`, `purge_company_save_settings`,
+  `invite_user`, `purge_user`, and `new_user_template`. They need
+  `with_api_password`, most cannot be undone, and none is retried on a 5xx.
+  A merge keeps the first id and folds the second into it. Checked against
+  the upstream controllers and mock servers; not yet against a real instance.
+- Activity log, email history and previews, fourteen methods:
+  `list_activities`, `list_all_activities`, `activity_feed`,
+  `entity_activity`, `add_activity_note`, `download_activity_entity`,
+  `client_email_history`, `entity_email_history`, and the previews `preview`,
+  `preview_html`, `live_preview`, `live_design`, `preview_purchase_order` and
+  `live_preview_purchase_order`. Adds `Activity`, `ActivityFeedEntry` and
+  `ActivityRef`. Email history is returned as raw JSON. See `COVERAGE.md` for
+  which were confirmed against a real server and the easy mistakes (a
+  singular entity name in one route, a plural in the next).
 - `FileUpload` and `Error::InvalidUpload`. An upload with no files, a nameless
   file, or an unparseable MIME type is refused locally, because the server
   answers an empty upload with a success that changed nothing.
@@ -27,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release. The advisory job fails visibly rather than silently; it is kept
   non-blocking through branch protection rather than `continue-on-error`.
 - Wrappers for every one of the API's 34 `Route::resource` groups, plus
-  `users` — 284 methods (including document uploads). See `COVERAGE.md` for the per-endpoint inventory.
+  `users` — 325 methods (including document uploads, per-resource extras, password-protected actions, and activity, email-history and preview routes). See `COVERAGE.md` for the per-endpoint inventory.
 - `COVERAGE.md`, a detailed record of what is wrapped, what is not, and why,
   checked against `routes/api.php` on the `v5-stable` branch.
 - Retry with full-jitter exponential backoff, configurable through
@@ -83,6 +107,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `list_all_*` with `per_page(0)` never terminated: the check `got < 0` has
   no solution. It now falls back to the default page size, and a `MAX_PAGES`
   backstop raises `Error::PaginationLimit` rather than quietly truncating.
+- Creating a recurring invoice or recurring expense failed after the record
+  had been created: a real server returns `frequency_id` as the string `"5"`
+  and the field was a strict integer. It now accepts a number or a numeric
+  string.
+- Creating a purchase order, location, or webhook from a default model was
+  rejected by a real server. An unset `PurchaseOrder.status_id`,
+  `Location.country_id`, or `Webhook.format` was sent as `""`, which the
+  server turns into `NULL` and then refuses (a 500 for the purchase order and
+  webhook, a 422 for the location). They are now left out of the request when
+  empty.
+- `with_api_password` refused a password containing a control character (a
+  newline, say) with a misleading `InvalidToken` error. Such a password is
+  now sent base64-encoded as `X-API-PASSWORD-BASE64`, the form the server's
+  middleware accepts for exactly this.
+- A payment whose `invoices` entry had a `null` or missing `invoice_id` or
+  `amount` failed to decode the whole payment. Both now default.
+- `list_system_logs` failed to decode against a real server. `SystemLog`'s
+  `created_at` and `updated_at` were typed as strings, following the OpenAPI
+  spec, but the server sends integer timestamps. They are now `i64`, like
+  every other model.
 - Requests could hang indefinitely. `reqwest` applies no timeout of its own
   and none was configured.
 - Ids were interpolated into request paths unescaped, so a `/`, `?`, or `#`

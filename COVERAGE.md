@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 284 methods in total.
+not a resource group). 325 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -57,6 +57,10 @@ not a resource group). 284 methods in total.
 | Tags | `/tags` | `Tag` |
 | Task Schedulers | `/task_schedulers` | `TaskScheduler` |
 | Tokens | `/tokens` | `CompanyToken` |
+
+`create_recurring_quote` currently 500s against Invoice Ninja 5.13.50: the
+server's own insert names a `design_id` column its `recurring_quotes` table
+does not have. The request is well-formed; nothing here can work around it.
 
 `bulk_*` accepts any action the endpoint supports; `archive`, `restore`, and
 `delete` work on all of them. An `ids` list matching nothing returns an empty
@@ -212,6 +216,103 @@ the whole tail — `chart("project_burnup/<id>", &body)`.
 Large report exports are queued and emailed rather than returned inline; in
 that case the body is a short JSON message instead of CSV.
 
+## Activities, email history and previews
+
+Each has a response shape of its own. Marked *observed* where confirmed
+against a 5.13.50 server.
+
+| Endpoint | Method | Returns |
+| --- | --- | --- |
+| `GET /activities` | `list_activities`, `list_all_activities` | `Vec<Activity>` (*observed*) |
+| `GET /activities?reactv2=1` | `activity_feed(rows)` | `Vec<ActivityFeedEntry>` (*observed*) |
+| `POST /activities/entity` | `entity_activity(entity, id, rows)` | `Vec<ActivityFeedEntry>` (*observed*) |
+| `POST /activities/notes` | `add_activity_note(entity, id, notes)` | `Activity` (*observed*) |
+| `GET /activities/download_entity/{id}` | `download_activity_entity` | PDF bytes |
+| `POST /emails/clientHistory/{client}` | `client_email_history` | `Vec<serde_json::Value>` |
+| `POST /emails/entityHistory` | `entity_email_history` | `Vec<serde_json::Value>` |
+| `POST /preview` | `preview`, `preview_html` | PDF bytes / HTML |
+| `POST /live_preview` | `live_preview` | PDF bytes (*observed*) |
+| `POST /live_design` | `live_design` | PDF bytes |
+| `POST /preview/purchase_order` | `preview_purchase_order` | PDF bytes |
+| `POST /live_preview/purchase_order` | `live_preview_purchase_order` | PDF bytes |
+
+Things that are easy to get wrong:
+
+- **The entity name is singular in one route and plural in the next.**
+  `entity_activity` takes `invoice`; `add_activity_note` takes `invoices`.
+- **`rows`, not `per_page`, caps the activity log** (default 75). Pass it
+  through `ListParams::param`. `entity_activity` leaves `rows` out when not
+  given rather than sending `null`, because the server tests for the key and
+  a null would count as given and remove the cap.
+- **The two activity shapes differ.** `Activity` carries hashed ids and a
+  string `activity_type_id`; the feed's `ActivityFeedEntry` carries a numeric
+  one and labelled references (`invoice`, `client`, … each `{label,
+  hashed_id}`).
+- **Email history is raw JSON.** The objects mirror what the mail provider
+  reported, and the instance available had never sent mail, so there was no
+  shape to take.
+- **Not yet run against a real server:** `preview`, `preview_html`, and both
+  purchase-order previews (they need a design object or a purchase order and a
+  PDF backend), and `live_design`, which answered a bare minimal request with
+  a 500 from the server on 5.13.50.
+
+## Password-protected actions
+
+Behind the `password_protected` middleware, so each needs
+`with_api_password` (the server also lets a recent password-authenticated
+session through without the header). Most are **irreversible**, and all are
+`POST`s except one, so none is retried on a 5xx.
+
+| Endpoint | Method | Returns |
+| --- | --- | --- |
+| `POST /clients/{id}/purge` | `purge_client` | `MessageResponse` |
+| `POST /clients/{id}/{other}/merge` | `merge_clients(id, other)` | the surviving `Client` |
+| `POST /vendors/{id}/{other}/merge` | `merge_vendors(id, other)` | the surviving `Vendor` |
+| `POST /companies/purge/{id}` | `purge_company` | `MessageResponse` |
+| `POST /companies/purge_save_settings/{id}` | `purge_company_save_settings` | `MessageResponse` |
+| `POST /users/{id}/invite` | `invite_user` | `MessageResponse` |
+| `POST /users/{id}/purge` | `purge_user` | `()` (the server answers 204) |
+| `GET /users/create` | `new_user_template` | a blank `User`, nothing stored |
+
+A merge keeps the first id and folds the second into it. These are verified
+against the upstream controllers and mock servers only: running them needs the
+account password, so the smoke test's optional password tier (merge two
+throwaway clients, purge the survivor) has not yet been run against a real
+instance. A password containing a control character cannot be a header value
+and goes out as `X-API-PASSWORD-BASE64` instead.
+
+## Per-resource extras
+
+Routes that sit beside a resource's CRUD set, each with its own response
+shape (read from the upstream controllers; the ones marked *observed* were
+also confirmed against a 5.13.50 server). All are `POST` unless noted, so none
+is retried on a 5xx or a timeout.
+
+| Endpoint | Method | Returns |
+| --- | --- | --- |
+| `POST /webhooks/{id}/retry` | `retry_webhook` | `Webhook` |
+| `POST /tasks/sort` | `sort_tasks` | `MessageResponse` |
+| `POST /designs/set/default` | `set_default_design` | `MessageResponse` |
+| `POST /client_gateway_tokens/{id}/setAsDefault` | `set_default_client_gateway_token` | `ClientGatewayToken` |
+| `GET /subscriptions/steps` | `subscription_steps` | `Vec<SubscriptionStep>` (*observed*: an object keyed by class name, not the array the source suggests) |
+| `POST /subscriptions/steps/check` | `check_subscription_steps` | `()` |
+| `POST /company_gateways/{id}/test` | `test_company_gateway` | `MessageResponse` |
+| `POST /company_gateways/{id}/clone` | `clone_company_gateway` | `CompanyGateway` |
+| `POST /company_gateways/{id}/import_customers` | `import_company_gateway_customers` | `MessageResponse` |
+| `POST /bank_integrations/refresh_accounts` | `refresh_bank_accounts` | `()` (the body is a serialised query builder) |
+| `POST /bank_integrations/remove_account/{id}` | `remove_bank_account` | `BankIntegration` |
+| `POST /bank_integrations/get_transactions/{id}` | `fetch_bank_transactions` | `MessageResponse` (the server ignores the id) |
+| `POST /bank_transactions/match` | `match_bank_transactions` | `Vec<BankTransaction>` |
+| `POST /clients/{id}/updateTaxData` | `update_client_tax_data` | `Client` |
+| `POST /clients/{id}/show_settings` | `client_show_settings` | `serde_json::Value` (*observed*) |
+| `POST /clients/{id}/peppol_discovery` | `client_peppol_discovery` | `serde_json::Value` |
+| `POST /clients/{id}/check_vat` | `check_client_vat` | `MessageResponse` |
+| `GET /clients/{id}/vat_status` | `client_vat_status` | `MessageResponse` (*observed*) |
+| `POST /clients/{id}/documents` | `client_documents` | `Vec<Document>` (*observed*; one page) |
+
+`updateTaxData` and `check_vat` call out to external tax services, so the
+smoke test does not exercise them.
+
 ## Not covered
 
 ### Nothing is blocked on a dependency
@@ -231,42 +332,14 @@ from `src/models/mod.rs`, and add a `resource_methods!` invocation in
 `src/client.rs` (or `crud_methods!` if the resource has no `/bulk` route —
 check `routes/api.php`).
 
-### Password-protected endpoints still unwrapped
-
-`with_api_password` makes these reachable, but the methods themselves aren't
-written yet:
-
-- `POST /clients/{id}/purge`
-- `POST /clients/{id}/{other}/merge`
-- `POST /vendors/{id}/{other}/merge`
-- `POST /companies/purge/{company}`,
-  `POST /companies/purge_save_settings/{company}`
-- `POST /users/{id}/invite`, `POST /users/{id}/purge`, `GET /users/create`
-
 ### Individual endpoints not wrapped
 
-- **Client extras** — `updateTaxData`, `show_settings`, `peppol_discovery`,
-  `check_vat`, `vat_status`, `documents`
-- **Bank integration extras** — `refresh_accounts`, `remove_account/{id}`,
-  `get_transactions/{id}`, and `POST /bank_transactions/match`
-- **Company gateway extras** — `test`, `clone`, `import_customers`
 - **Company extras** — `GET /companies/{id}/logo`,
   `POST /companies/{id}/default`, `updateOriginTaxData`,
   `POST /companies/current`
-- **Design extras** — `POST /designs/set/default`
-- **Client gateway token extras** — `setAsDefault`
-- **Task extras** — `POST /tasks/sort`
-- **Webhook extras** — `POST /webhooks/{id}/retry`
-- **Subscription extras** — `GET /subscriptions/steps`,
-  `POST /subscriptions/steps/check`
 - **User extras** (not password-protected, unlike the rest of `/users`) —
   `POST /users/{id}/disconnect_mailer`, `POST /users/{id}/disconnect_oauth`,
   `POST /user/{id}/reconfirm`
-- **Preview** — `POST /preview`, `POST /preview/purchase_order`, live preview
-- **Activities** — `GET /activities`, `POST /activities/entity`,
-  `POST /activities/notes`, `download_entity/{activity}`
-- **Email history** — `POST /emails/clientHistory/{client}`,
-  `POST /emails/entityHistory`
 - **Auth** — `/login`, `/logout`, `/refresh`, `/connected_account`,
   passkey routes
 - **Import/export** — `/import`, `/preimport`, `/import_json`, `/export`,

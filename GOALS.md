@@ -149,18 +149,29 @@ way a document is created. There is no `create_document` and there will not
 be one. `edocument/upload` was left out because it imports an expense from
 an e-document rather than attaching a file, so it belongs with item 6.
 
+**Done:** the per-resource extras — webhook retry, task sort, default
+design, default gateway token, subscription steps, and the client,
+bank-integration, and company-gateway routes (19 methods). The numbering
+below keeps its original item numbers. Running the smoke test against a real
+server overturned one reading of the source here: `/subscriptions/steps`
+answers with an object keyed by class name, not the array the controller
+suggests. That is the case for keeping the real-server tier.
+
+**Done:** the password-protected actions — client purge and merge, vendor
+merge, company purge, user invite and purge, and the blank-user template (8
+methods). They are verified against the upstream controllers and mocks only;
+the smoke test has a password tier for the first real-server run
+(`IN_API_PASSWORD`), which has not happened yet. The claim here that
+`with_api_password` already made them reachable was not quite true: a
+password with a control character was refused locally.
+
+**Done:** activities, email history and previews (14 methods, two new
+models). The email history stays raw JSON, since no instance here had sent
+mail to take a shape from; promoting it to a model needs a sample. Several
+previews are unverified against a real server (see `COVERAGE.md`).
+
 Still to do:
 
-2. **Per-resource extras** — mechanical, and they reuse existing patterns:
-   `webhooks/{id}/retry`, `tasks/sort`, `designs/set/default`,
-   `client_gateway_tokens/{id}/setAsDefault`, `subscriptions/steps`, the
-   client extras (`updateTaxData`, `show_settings`, `check_vat`, …), the
-   bank-integration and company-gateway extras.
-3. **Password-protected actions** — `with_api_password` already makes these
-   reachable; only the methods are missing. Client purge and merge, vendor
-   merge, company purge, user invite and purge.
-4. **Preview, activities, and email history** — distinct response shapes, so
-   each needs its own hand-written method and probably its own model.
 5. **Public invitation-key downloads** — eight routes that take no auth
    token, so they do not fit the authenticated request path and need a
    different entry point.

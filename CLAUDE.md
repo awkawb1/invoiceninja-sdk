@@ -84,10 +84,51 @@ IN_API_TOKEN=... cargo run --example list_clients
 ```
 
 Tests live in `tests/` (integration-style, no network access required);
-`src/` has no `#[test]` modules. Two files: `model_roundtrip.rs` covers the
-serde layer, and `client_requests.rs` covers the request plumbing
-(pagination, path escaping, headers, timeouts, error mapping) against a
-`wiremock` server on loopback — no credentials or internet needed.
+`src/` has no `#[test]` modules. Four files:
+
+- `model_roundtrip.rs` — the serde layer, from hand-written payloads.
+- `client_requests.rs` — the request plumbing (pagination, path escaping,
+  headers, timeouts, retry, error mapping, one test per endpoint extra)
+  against a `wiremock` server on loopback.
+- `decode_tolerance.rs` — for every model, serialises `Default`, then nulls
+  and removes each field in turn and requires the result to still decode.
+  A new model belongs in its list; a new non-`Option` field without
+  `null_to_default` fails it.
+- `real_shapes.rs` — decodes `tests/fixtures/*.json`, which are the *shapes*
+  (keys and JSON types, no values) of responses captured from a real server,
+  and checks a decode + re-serialise loses no key. It also refuses fixtures
+  that hold any real value, and fixtures with no test.
+
+No credentials or internet needed for any of them.
+
+**Why the fixtures matter:** twice, mocks written from the upstream source
+passed while a real server disagreed (system-log timestamps; the
+`/subscriptions/steps` shape), and `frequency_id` and several empty-string
+fields were wrong the same way. When the smoke test finds a divergence,
+refresh the fixtures so it stays caught:
+
+```sh
+# 1. Fill a DISPOSABLE instance with one row of each kind (writes!).
+IN_SMOKE_WRITE_HOST=localhost IN_BASE_URL=... IN_API_TOKEN=... \
+  cargo run --example seed_sample_data
+# 2. Capture shapes (GET only). Review `git diff tests/fixtures` before committing.
+IN_BASE_URL=... IN_API_TOKEN=... cargo run --example capture_shapes
+```
+
+A resource with no rows is skipped, so the fixture set only covers what the
+instance held. Bank integrations, company gateways, client gateway tokens,
+subscriptions, task schedulers, and recurring quotes are not captured: they
+need external accounts, or (recurring quotes on 5.13.50) the server's own
+insert fails.
+
+**Fields omitted when empty.** The server runs `ConvertEmptyStringsToNull`,
+so an unset `String` serialised as `""` becomes `NULL`, which a non-null
+column or an `integer` rule then rejects. `Location.country_id`,
+`PurchaseOrder.status_id` and `Webhook.format` therefore carry
+`skip_serializing_if = "String::is_empty"`. If a create from a `Default`
+model 500s or 422s on an empty field, do the same — and add the path to
+`OMITTED_WHEN_EMPTY` in `tests/real_shapes.rs` and `examples/smoke_test.rs`,
+which is deliberately a list of decisions rather than a blanket exemption.
 
 ### Testing against a real server
 
@@ -112,10 +153,20 @@ tier leaves a gap in the client number sequence and a soft-deleted row (a
 real purge needs the account password), and it may fire webhooks. Use a
 disposable instance — a local VM or container — for it.
 
+Beyond "does it decode", the read tier fetches the same rows raw and fails
+if a typed row lost a key (`keys kept: <resource>`, names only, never
+values), and the write tier creates a purchase order, location, webhook and
+recurring invoice from bare `Default` models, since those are what broke.
+With `IN_API_PASSWORD` set as well, a password tier merges two throwaway
+clients and purges the survivor (a real, permanent delete); it has not yet
+been run against an instance. `.github/workflows/smoke.yml` runs it on demand (`workflow_dispatch` only,
+needing `IN_BASE_URL` and `IN_API_TOKEN` secrets); the write tier runs only if
+the `write_host` input names the instance's host.
+
 It prints PASS/FAIL per check and never the contents of a record. The upload
-wire format (`POST` plus `_method=PUT`) was read from the framework source
-rather than observed, so the first run of the write tier against a real
-instance is the real verification of it.
+wire format (`POST` plus `_method=PUT`) was read from the framework source,
+then confirmed by running the write tier against a disposable Invoice Ninja
+5.13.50 instance (2026-10-24): single and multi-file uploads both attached.
 
 ## Changelog
 
@@ -264,18 +315,18 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 284 methods: 30 resources with CRUD + bulk, 3 with CRUD
-only, 4 with entity actions, 16 with document uploads, and 28 hand-written.
+(which isn't one). 325 methods: 30 resources with CRUD + bulk, 3 with CRUD
+only, 4 with entity actions, 16 with document uploads, and 69 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
 the four action-capable resources, `report`, `chart`, `search`, `statics`,
 `send_email`, `refund_payment`, `ping`, and `health_check`.
 
 **`COVERAGE.md` is the detailed inventory** — every wrapped endpoint, every
-gap, and the reason for each gap. The main remaining gaps are a handful of
-per-resource extras
-(`clients/{id}/purge`, `company_gateways/{id}/test`, …), and the
-integration/auth routes.
+gap, and the reason for each gap. The main remaining gaps are the
+integration and auth routes, import/export, the public invitation-key
+downloads (which take no auth token, so they don't fit the client's
+request path), and a few company and user extras.
 
 Keep `COVERAGE.md` current when adding or removing an endpoint: it names
 exact counts and route groups, so it goes stale quietly. The three coverage
