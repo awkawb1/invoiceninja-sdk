@@ -269,14 +269,34 @@ client-portal family, the provider webhooks, and a few company and user
 extras. Keep that file current — it names exact counts, so it goes stale
 quietly.
 
+**Decided: `chart` stays generic.** The premise in the old open question —
+"eleven chart endpoints share no response shape" — undersold the problem.
+Reading `ChartController`/`ChartService` directly: the eleven routes are
+nine distinct bodies (`totals`/`totalsV2` and `chart_summary`/
+`chart_summaryV2` are pairs of the same implementation), and six of those
+nine *do* share an outer idiom — an object keyed by a company's own
+currency ids, plus a sentinel `999` key for the cross-currency aggregate.
+But the leaf rows inside that shape are raw `DB::select` results with no
+model behind them, and they don't agree with each other: within `totals()`
+alone, the `invoices` leaf carries `invoiced_amount`, `revenue` carries
+`paid_to_date`, `outstanding` carries `amount` *and* `outstanding_count`,
+and `chart_summary`'s four leaves differ again. That is goal 2's
+"ambiguous upstream type" problem — compounded by `SUM()` often coming
+back from the DB driver as a numeric string — repeated dozens of times
+over. The remaining three bodies (`cashflow_forecast`,
+`client_payment_analytics`, `project_analytics`/`project_burnup`) delegate
+to standalone service classes with no shape in common with each other or
+with the currency-keyed family, and `calculated_fields` returns whichever
+scalar or array type its ~20-way `field` match picks, so there is no fixed
+shape to type at all. Modeling the shared outer envelope would still leave
+dozens of hand-maintained, DB-column-shaped leaf structs for marginal
+benefit over a caller defining their own `T` for the one endpoint they
+use — which `chart::<T>` already lets them do.
+
 ## Open questions
 
 These are genuinely undecided. Deciding one is a change to this file.
 
-- **`chart` is still generic** over `T: DeserializeOwned`, because the
-  eleven chart endpoints share no response shape. Per-chart structs would
-  be eleven small models of unstable payloads; unclear whether that earns
-  its keep.
 - **Large bodies are buffered entirely into memory.** PDF downloads and CSV
   report exports come back as `Vec<u8>`, and an uploaded `FileUpload` holds
   its whole contents until the request finishes. Streaming would be better
