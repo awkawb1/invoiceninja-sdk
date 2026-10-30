@@ -228,6 +228,24 @@ last item, so **the roadmap is closed**: every route in `routes/api.php` that
 an API-token client can reach is now wrapped. It did land in pieces, as the
 item predicted — import/export first, then the integrations.
 
+**Done:** the auth routes, once split apart — the single "auth routes"
+label had quietly merged four unrelated things. `logout` and the passkey
+list/delete routes sit behind the same `token_auth` middleware as every
+other wrapped endpoint, so they needed no new client type, just methods
+(and a documented warning that `logout` rotates every token on the whole
+company, not just the caller's). `login` *does* need a different entry
+point — there is no token yet to build an `InvoiceNinjaClient` with — but
+that turned out to be a standalone associated function, not a second
+client type: `InvoiceNinjaClient::login` trades an email and password for
+a `LoginResponse` carrying a token, which then goes to `new` or `hosted`
+as normal. Passkey *registration* and passkey *login* stay unwrapped
+because they're WebAuthn ceremonies a browser has to drive; `/refresh` and
+`/refresh_react` turned out to be the bulk `updated_at` sync dump already
+parked below, not an auth concept, so they stay out for that reason
+instead; and `/connected_account` (Gmail OAuth linking) was filed under
+the wrong heading — it belongs with the Integrations done item above. See
+`COVERAGE.md`'s "Logout, passkeys, and login" section for the detail.
+
 As the item also predicted, it is the least SDK-shaped part of the API, and
 the typing reflects that: most of these return `serde_json::Value`, because
 their replies are pass-throughs from Storecove, Stripe, Yodlee or GoCardless,
@@ -244,18 +262,17 @@ a registered route with no controller method behind it, so it 500s — there is
 nothing to wrap until upstream adds the handler.
 
 What remains unwrapped is now only what each entry in `COVERAGE.md`'s gap
-list explains: the auth routes (an open question below), the client-portal
-family, the provider webhooks, and a few company and user extras. Keep that
-file current — it names exact counts, so it goes stale quietly.
+list explains: the passkey and SSO ceremonies and `/login/precheck`
+(each needs something — a browser, a redirect — this client doesn't have),
+`/refresh`/`/refresh_react` (the sync-engine shape parked below), the
+client-portal family, the provider webhooks, and a few company and user
+extras. Keep that file current — it names exact counts, so it goes stale
+quietly.
 
 ## Open questions
 
 These are genuinely undecided. Deciding one is a change to this file.
 
-- **Auth routes** (`/login`, `/logout`, `/refresh`, passkeys) are in the gap
-  list, but they are a different authentication model from the API token
-  this client is built around. Including them may mean a second client type
-  rather than more methods on this one. Not obviously in scope.
 - **`chart` is still generic** over `T: DeserializeOwned`, because the
   eleven chart endpoints share no response shape. Per-chart structs would
   be eleven small models of unstable payloads; unclear whether that earns

@@ -100,7 +100,7 @@ IN_API_TOKEN=... cargo run --example list_clients
 
 ## Coverage
 
-Every one of the API's 34 resource groups, plus users — 371 methods. Each
+Every one of the API's 34 resource groups, plus users — 375 methods. Each
 resource has `list`, `list_all`, `get`, `create`, `update`, `delete`, and
 (where the API offers one) `bulk`:
 
@@ -116,7 +116,9 @@ resource has `list`, `list_all`, `get`, `create`, `update`, `delete`, and
 
 Plus documents, entity actions and PDF downloads — by record id, or by
 invitation key for the PDF and XML a given contact receives — reports,
-charts, search, statics, email sending, refunds, and health checks.
+charts, search, statics, email sending, refunds, health checks, logout,
+passkey management, and a standalone `login` to exchange credentials for
+a token.
 
 **See [COVERAGE.md](COVERAGE.md) for the full endpoint-by-endpoint
 inventory**, including everything that is deliberately *not* wrapped and why.

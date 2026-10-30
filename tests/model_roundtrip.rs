@@ -1,10 +1,10 @@
 use invoiceninja_sdk::models::{
     BankIntegration, BankTransaction, BankTransactionRule, BulkRequest, Client, ClientGatewayToken,
     Company, CompanyGateway, CompanyToken, Credit, Design, Document, Expense, ExpenseCategory,
-    GroupSetting, HealthCheck, Invoice, ListParams, ListResponse, Location, PaymentTerm, Project,
-    PurchaseOrder, Quote, RecurringExpense, RecurringInvoice, RecurringQuote, SearchResults,
-    Statics, Subscription, SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate, User, Vendor,
-    Webhook,
+    GroupSetting, HealthCheck, Invoice, ListParams, ListResponse, Location, LoginResponse, Passkey,
+    PaymentTerm, Project, PurchaseOrder, Quote, RecurringExpense, RecurringInvoice, RecurringQuote,
+    SearchResults, Statics, Subscription, SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate,
+    User, Vendor, Webhook,
 };
 use serde_json::json;
 
@@ -762,4 +762,43 @@ fn statics_ids_accept_both_strings_and_numbers() {
     assert_eq!(statics.payment_types[0].id, "1");
     assert_eq!(statics.industries[0].id, "3");
     assert_eq!(statics.sizes[0].id, "", "a null id decodes as empty");
+}
+
+#[test]
+fn login_response_types_the_token_and_preserves_the_rest() {
+    let payload = json!({
+        "data": [{
+            "is_owner": true,
+            "is_admin": true,
+            "token": { "id": "t1", "token": "abc" },
+            "company": { "id": "c1", "settings": {} },
+            "user": { "id": "u1", "email": "me@example.com" }
+        }]
+    });
+
+    let login: LoginResponse = serde_json::from_value(payload).unwrap();
+    assert!(login.data[0].is_owner);
+    let token = login.data[0].token.as_ref().unwrap();
+    assert_eq!(token.token, "abc");
+
+    let back = serde_json::to_value(&login).unwrap();
+    assert_eq!(back["data"][0]["company"]["id"], "c1");
+    assert_eq!(back["data"][0]["user"]["email"], "me@example.com");
+}
+
+#[test]
+fn passkey_round_trip_preserves_last_used_at() {
+    let used = json!({
+        "id": "p1", "name": "Laptop", "created_at": "2026-01-01T00:00:00.000000Z",
+        "last_used_at": 1700000000
+    });
+    let never_used = json!({
+        "id": "p2", "name": "Phone", "created_at": "2026-02-01T00:00:00.000000Z",
+        "last_used_at": null
+    });
+
+    let used: Passkey = serde_json::from_value(used).unwrap();
+    let never_used: Passkey = serde_json::from_value(never_used).unwrap();
+    assert_eq!(used.last_used_at, Some(1700000000));
+    assert_eq!(never_used.last_used_at, None);
 }

@@ -10,10 +10,11 @@ use crate::models::{
     Activity, ActivityFeedEntry, BankIntegration, BankTransaction, BankTransactionRule,
     BulkRequest, Client as ClientModel, ClientGatewayToken, Company, CompanyGateway, CompanyToken,
     Credit, Design, Document, Expense, ExpenseCategory, ExportJob, GroupSetting, HealthCheck,
-    ImportPreview, Invoice, ItemResponse, ListParams, ListResponse, Location, MessageResponse,
-    Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote, RecurringExpense,
-    RecurringInvoice, RecurringQuote, SearchResults, Statics, Subscription, SubscriptionStep,
-    SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate, User, Vendor, Webhook,
+    ImportPreview, Invoice, ItemResponse, ListParams, ListResponse, Location, LoginResponse,
+    MessageResponse, Passkey, Payment, PaymentTerm, Product, Project, PurchaseOrder, Quote,
+    RecurringExpense, RecurringInvoice, RecurringQuote, SearchResults, Statics, Subscription,
+    SubscriptionStep, SystemLog, Tag, Task, TaskScheduler, TaskStatus, TaxRate, User, Vendor,
+    Webhook,
 };
 use crate::retry::{self, RetryPolicy};
 use crate::upload::FileUpload;
@@ -61,6 +62,32 @@ fn seg(value: &str) -> Result<impl std::fmt::Display + '_> {
         return Err(Error::InvalidPathSegment(value.to_string()));
     }
     Ok(utf8_percent_encode(value, PATH_SEGMENT))
+}
+
+/// Validates a base URL and strips its trailing slash.
+///
+/// Shared by [`InvoiceNinjaClient::new`] and
+/// [`InvoiceNinjaClient::login`], the one other place a base URL arrives
+/// from a caller rather than from an existing client. Parsing up front
+/// means a malformed URL — most often a missing scheme, as in
+/// `invoicing.co/api/v1` — fails here instead of as a confusing per-request
+/// error.
+fn validate_base_url(base_url: String) -> Result<String> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidBaseUrl(base_url));
+    }
+
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|e| Error::InvalidBaseUrl(format!("{trimmed}: {e}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(Error::InvalidBaseUrl(format!(
+            "{trimmed}: expected an http or https url, got scheme `{}`",
+            parsed.scheme()
+        )));
+    }
+
+    Ok(trimmed.trim_end_matches('/').to_string())
 }
 
 /// Standard base64 with padding. Only used for the one header that needs it,
@@ -135,25 +162,7 @@ pub struct InvoiceNinjaClient {
 
 impl InvoiceNinjaClient {
     pub fn new(base_url: impl Into<String>, api_token: impl Into<String>) -> Result<Self> {
-        let base_url = base_url.into();
-        let trimmed = base_url.trim();
-        if trimmed.is_empty() {
-            return Err(Error::InvalidBaseUrl(base_url));
-        }
-
-        // Parse up front rather than letting a malformed base URL surface as a
-        // confusing per-request failure. A missing scheme is the common typo
-        // (`invoicing.co/api/v1`), and it fails here instead of on every call.
-        let parsed = reqwest::Url::parse(trimmed)
-            .map_err(|e| Error::InvalidBaseUrl(format!("{trimmed}: {e}")))?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(Error::InvalidBaseUrl(format!(
-                "{trimmed}: expected an http or https url, got scheme `{}`",
-                parsed.scheme()
-            )));
-        }
-
-        let base_url = trimmed.trim_end_matches('/').to_string();
+        let base_url = validate_base_url(base_url.into())?;
 
         let mut headers = header::HeaderMap::new();
         let mut token_value = header::HeaderValue::from_str(&api_token.into())
@@ -336,6 +345,76 @@ impl InvoiceNinjaClient {
     /// prefix, and a bare host silently 404s every request.
     pub fn hosted(api_token: impl Into<String>) -> Result<Self> {
         Self::new(HOSTED_BASE_URL, api_token)
+    }
+
+    /// Exchanges an email and password for an API token, for the one case
+    /// `new` cannot cover: there is no token yet to build a client with.
+    ///
+    /// `POST /login` sits outside the `token_auth` middleware every other
+    /// wrapped endpoint uses, so this is a standalone async function rather
+    /// than a method — nothing in `self` could be used to make the request.
+    /// It builds its own one-shot `reqwest::Client` and does not go through
+    /// `req` or `execute`, and, like every other `POST` in this crate, is
+    /// not retried on a 5xx or a timeout.
+    ///
+    /// On success the server answers with one entry per company the account
+    /// has access to, each carrying that company's token
+    /// ([`LoginCompanyUser::token`](crate::models::LoginCompanyUser::token))
+    /// — feed one into [`new`](Self::new) (or [`hosted`](Self::hosted)) to
+    /// get a working client:
+    ///
+    /// ```no_run
+    /// # async fn run() -> invoiceninja_sdk::Result<()> {
+    /// use invoiceninja_sdk::InvoiceNinjaClient;
+    ///
+    /// let login = InvoiceNinjaClient::login(
+    ///     "https://invoicing.co/api/v1",
+    ///     "me@example.com",
+    ///     "correct-horse-battery-staple",
+    ///     None,
+    /// )
+    /// .await?;
+    /// let token = &login.data[0].token.as_ref().expect("token include").token;
+    /// let client = InvoiceNinjaClient::hosted(token)?;
+    /// # let _ = client;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// `one_time_password` is only consulted when the account has
+    /// two-factor authentication enabled; pass `None` otherwise. Passkey
+    /// login, SSO (`oauth_login`, `oidc/*`), and a self-hosted instance's
+    /// optional `X-API-SECRET` are not handled — each needs a ceremony or a
+    /// header this function does not send, and none fits a single
+    /// email/password call.
+    pub async fn login(
+        base_url: &str,
+        email: &str,
+        password: &str,
+        one_time_password: Option<&str>,
+    ) -> Result<LoginResponse> {
+        let base_url = validate_base_url(base_url.to_string())?;
+
+        let mut body = serde_json::json!({ "email": email, "password": password });
+        if let Some(otp) = one_time_password {
+            body["one_time_password"] = serde_json::Value::String(otp.to_string());
+        }
+
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()?;
+        let response = http
+            .post(format!("{base_url}/login"))
+            .timeout(DEFAULT_TIMEOUT)
+            .header(
+                header::ACCEPT,
+                header::HeaderValue::from_static("application/json"),
+            )
+            .header("X-Requested-With", "XMLHttpRequest")
+            .json(&body)
+            .send()
+            .await?;
+        Self::decode(response).await
     }
 
     fn url(&self, path: &str) -> String {
@@ -1906,6 +1985,41 @@ impl InvoiceNinjaClient {
     /// passing to [`create_user`](Self::create_user). Nothing is stored.
     pub async fn new_user_template(&self) -> Result<User> {
         self.get_one("users/create").await
+    }
+}
+
+/// Logout and passkey management. Unlike the credential exchange in
+/// [`login`](Self::login), these sit behind the normal `token_auth`
+/// middleware — the same one every other wrapped endpoint uses — so they
+/// are plain methods here rather than a standalone function.
+impl InvoiceNinjaClient {
+    /// Regenerates every system-issued API token on the **whole company**,
+    /// not just the one this client is using.
+    ///
+    /// `LogoutController::index` looks up the company behind the caller's
+    /// token and replaces every `is_system` token belonging to it with a
+    /// fresh random value — one call logs out every user and every device
+    /// sharing that company. The token this client was built with is among
+    /// them, so a subsequent call through it will fail; building a new
+    /// client with a fresh token is the only way back in.
+    pub async fn logout(&self) -> Result<MessageResponse> {
+        self.post_unwrapped("logout", &serde_json::json!({})).await
+    }
+
+    /// Lists the WebAuthn passkeys registered to the current user.
+    pub async fn list_passkeys(&self) -> Result<Vec<Passkey>> {
+        self.get_list("settings/passkeys", &ListParams::default())
+            .await
+    }
+
+    /// Deletes a passkey credential. The server refuses with a 403 if
+    /// `id` belongs to a different user than the one the token
+    /// authenticates.
+    ///
+    /// Registering a new passkey is not wrapped — see [`Passkey`] for why.
+    pub async fn delete_passkey(&self, id: &str) -> Result<()> {
+        self.delete_one(&format!("settings/passkeys/{}", seg(id)?))
+            .await
     }
 }
 

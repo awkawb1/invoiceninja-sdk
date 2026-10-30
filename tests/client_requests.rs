@@ -2931,3 +2931,129 @@ extra_test!(
     |c| c.nordigen_institutions(),
     |got| assert_eq!(got[0]["id"], "BANK_X")
 );
+
+// --- logout, passkeys, login --------------------------------------------
+
+extra_test!(
+    logout_posts_and_returns_the_message,
+    "POST",
+    "/logout",
+    message(),
+    |c| c.logout(),
+    |got| assert_eq!(got.message, "ok")
+);
+
+extra_test!(
+    list_passkeys_decodes_the_data_envelope,
+    "GET",
+    "/settings/passkeys",
+    json!({ "data": [
+        { "id": "p1", "name": "Work laptop", "created_at": "2026-01-01T00:00:00.000000Z", "last_used_at": 1700000000 },
+        { "id": "p2", "name": "Phone", "created_at": "2026-02-01T00:00:00.000000Z", "last_used_at": null },
+    ] }),
+    |c| c.list_passkeys(),
+    |got| {
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].last_used_at, Some(1700000000));
+        assert_eq!(got[1].last_used_at, None);
+    }
+);
+
+/// The server answers a delete with `{"message": ...}`, not an empty body,
+/// but `delete_passkey` discards it like every other `delete_*`.
+#[tokio::test]
+async fn delete_passkey_discards_the_message_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/settings/passkeys/p1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(message()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    client(&server).delete_passkey("p1").await.unwrap();
+}
+
+/// `login` has no client yet, so it is an associated function taking the
+/// base url directly rather than a method.
+#[tokio::test]
+async fn login_posts_credentials_and_decodes_the_company_token() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .and(wiremock::matchers::body_json(json!({
+            "email": "me@example.com",
+            "password": "correct-horse-battery-staple",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                {
+                    "is_owner": true,
+                    "is_admin": true,
+                    "token": { "id": "t1", "token": "new-api-token" },
+                    "company": { "id": "c1" },
+                }
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let login = InvoiceNinjaClient::login(
+        &server.uri(),
+        "me@example.com",
+        "correct-horse-battery-staple",
+        None,
+    )
+    .await
+    .expect("login should succeed");
+
+    assert_eq!(login.data.len(), 1);
+    let token = login.data[0].token.as_ref().expect("token include present");
+    assert_eq!(token.token, "new-api-token");
+    // The nested company blob is not modelled, but it is not dropped either.
+    assert!(login.data[0].extra.contains_key("company"));
+}
+
+/// An optional one-time password goes out alongside the credentials when
+/// the caller supplies one, and is left out entirely otherwise.
+#[tokio::test]
+async fn login_sends_one_time_password_only_when_given() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .and(wiremock::matchers::body_json(json!({
+            "email": "me@example.com",
+            "password": "pw",
+            "one_time_password": "123456",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    InvoiceNinjaClient::login(&server.uri(), "me@example.com", "pw", Some("123456"))
+        .await
+        .expect("login should succeed");
+}
+
+/// A failed login surfaces the server's validation message like any other
+/// non-2xx response.
+#[tokio::test]
+async fn login_failure_is_an_api_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "message": "These credentials do not match our records."
+        })))
+        .mount(&server)
+        .await;
+
+    let err = InvoiceNinjaClient::login(&server.uri(), "me@example.com", "wrong", None)
+        .await
+        .expect_err("400");
+    assert!(
+        matches!(&err, Error::Api { status, .. } if status.as_u16() == 400),
+        "{err:?}"
+    );
+}

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Logout and passkey management: `logout`, `list_passkeys`, and
+  `delete_passkey`. `logout` regenerates every system-issued token on the
+  whole company, not just the caller's, so it ends every session sharing
+  it. Passkey *registration* is not wrapped — it needs a WebAuthn ceremony
+  only a browser can drive. Adds `Passkey`.
+- `InvoiceNinjaClient::login`, an associated function (not a method, since
+  there is no token yet to build a client with) that exchanges an email and
+  password for an API token, optionally with a one-time password for
+  two-factor accounts. Adds `LoginResponse` and `LoginCompanyUser`; the
+  nested company/user/account data the server also returns is left in
+  `extra` rather than modelled. Does not cover passkey login, SSO, or
+  `/login/precheck`.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

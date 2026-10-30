@@ -361,24 +361,28 @@ changes, doc tweaks) does not need an entry.
 ## Coverage
 
 **All 34 of the API's `Route::resource` groups are wrapped**, plus `users`
-(which isn't one). 371 methods: 30 resources with CRUD + bulk, 3 with CRUD
+(which isn't one). 375 methods: 30 resources with CRUD + bulk, 3 with CRUD
 only, 4 with entity actions, 4 with invitation-key downloads, 16 with
-document uploads, and 107 hand-written.
+document uploads, and 111 hand-written.
 
 Plus the non-CRUD surface: documents, entity actions and PDF downloads for
 the four action-capable resources, their invitation-key PDF and e-document
 downloads, `report`, `chart`, `search`, `statics`, `send_email`,
 `refund_payment`, `ping`, `health_check`, import/export, the 17 e-invoicing
-routes, and the QuickBooks, Stripe, calendar, Yodlee and GoCardless
-integrations.
+routes, the QuickBooks, Stripe, calendar, Yodlee and GoCardless
+integrations, `logout`, passkey list/delete, and a standalone `login`.
 
 **`GOALS.md`'s roadmap is closed** — every route an API-token client can
 reach is wrapped. What is left out is left out for a reason, not pending:
-the auth routes (a different auth model, and an open question in `GOALS.md`),
-the client-portal family and the OAuth and provider-webhook routes (all
-outside `/api/v1`, so they don't fit the client's `base_url` or its token),
-`POST /quickbooks/settings` (a registered route with no controller method,
-so it 500s), and a few company and user extras.
+passkey registration and passkey login (WebAuthn ceremonies only a browser
+can drive), SSO (`oauth_login`, `oidc/*`) and `/login/precheck`,
+`/refresh`/`/refresh_react` (the bulk sync-dump shape parked as its own open
+question in `GOALS.md`, not an auth concept), `/connected_account` (Gmail
+OAuth linking — an integration, not login/logout), the client-portal family
+and the OAuth and provider-webhook routes (all outside `/api/v1`, so they
+don't fit the client's `base_url` or its token), `POST /quickbooks/settings`
+(a registered route with no controller method, so it 500s), and a few
+company and user extras.
 
 **`COVERAGE.md` is the detailed inventory** — every wrapped endpoint, every
 gap, and the reason for each gap.

@@ -18,7 +18,7 @@ declares 34 `Route::resource` groups and 274 explicit route declarations
 > exists or what it returns.
 
 **All 34 `Route::resource` groups are now wrapped**, plus `users` (which is
-not a resource group). 371 methods in total.
+not a resource group). 375 methods in total.
 
 ## Resources with full CRUD + bulk
 
@@ -434,6 +434,60 @@ established that a purged record reads back as a **400**, not a 404. A
 password containing a control character cannot be a header value and goes out
 as `X-API-PASSWORD-BASE64` instead.
 
+## Logout, passkeys, and login
+
+`/login`, `/logout`, and the passkey routes used to sit together under one
+"Auth" gap. They don't share a shape: `/logout` and the passkey *settings*
+routes are plain `token_auth` endpoints like everything else this crate
+wraps, while `/login` sits in a different, unauthenticated middleware group
+because the caller has no token yet to prove who they are.
+
+| Endpoint | Method | Needs an existing client? |
+| --- | --- | --- |
+| `POST /logout` | `logout` | yes |
+| `GET /settings/passkeys` | `list_passkeys` | yes |
+| `DELETE /settings/passkeys/{id}` | `delete_passkey` | yes |
+| `POST /login` | `InvoiceNinjaClient::login` (associated fn, not a method) | **no** |
+
+**`logout` has a bigger blast radius than its name suggests.** The
+controller doesn't revoke the caller's token — it regenerates *every*
+`is_system` token belonging to the whole company, logging out every user
+and device that shares it, including the one making the call.
+
+**Passkey registration is not wrapped.** `POST /settings/passkeys/options`
+and `POST /settings/passkeys` exist to drive a WebAuthn ceremony that only a
+browser talking to a platform authenticator can complete — there is no
+attestation object for this crate to produce standalone. Listing and
+deleting an existing credential need no such ceremony, so those are the two
+operations offered.
+
+**`login` returns the server's full "first load" payload** — nested
+company, clients, invoices, designs, and more under each `CompanyUser`
+entry — because it reuses the same transformer as a browser's initial page
+load. This crate does not model that nested tree; [`LoginCompanyUser`]
+types only `is_owner`, `is_admin`, and the `token` it exists to produce,
+and leaves the rest in `extra`, losslessly. [`LoginCompanyUser::token`]
+is what a caller actually needs — feed it to
+[`InvoiceNinjaClient::new`] or [`InvoiceNinjaClient::hosted`].
+
+`login` optionally takes a one-time password for accounts with two-factor
+auth enabled. It does not support passkey login, SSO (`oauth_login`,
+`oidc/*`), `/login/precheck`, or a self-hosted instance's optional
+`X-API-SECRET` header — each needs a ceremony, a redirect, or a header this
+single email/password call does not send.
+
+`/refresh` and `/refresh_react` were in the old "Auth" bucket too, but
+they're not an authentication concept: `BaseController::refreshResponse`
+is the same bulk, `updated_at`-filtered account dump as `/login`'s first
+load. That's the sync-engine shape [`GOALS.md`](GOALS.md) already parks as
+a separate open question, not something to bolt onto auth — not
+implemented, for the same reason.
+
+`/connected_account` (linking a Gmail OAuth account) was also filed under
+"Auth". It's an integration-linking endpoint, not login/logout, so it
+belongs with Stripe/QuickBooks under [Integrations](#integrations) above —
+also not implemented.
+
 ## Per-resource extras
 
 Routes that sit beside a resource's CRUD set, each with its own response
@@ -491,8 +545,11 @@ check `routes/api.php`).
 - **User extras** (not password-protected, unlike the rest of `/users`) —
   `POST /users/{id}/disconnect_mailer`, `POST /users/{id}/disconnect_oauth`,
   `POST /user/{id}/reconfirm`
-- **Auth** — `/login`, `/logout`, `/refresh`, `/connected_account`,
-  passkey routes
+- **Auth** — see [Logout, passkeys, and login](#logout-passkeys-and-login)
+  above for what's covered (`login`, `logout`, passkey list/delete) and
+  what isn't: `/login/precheck`, `oauth_login`, `oidc/*`, passkey
+  registration and passkey login, `/refresh`, `/refresh_react`, and
+  `/connected_account`
 - **Migration** — `/migration/start`. Moves a company between instances and
   is driven by the v4 migration tool, not by an SDK caller.
 - **Invoice extras** — `delivery_note`, `payment_schedule`,
@@ -526,7 +583,7 @@ check `routes/api.php`).
   `/claim_license`, `/check_license`, `/check_subdomain`, `/one_time_token`,
   `/last_error`, `/support/messages/send`, `/verify/*`, `/accounts/{id}`,
   `/feedback`, `/filters/{entity}`, `/scheduler`, `/mailer/check`,
-  `/smtp/check`, `/password_timeout`, `/refresh_react`, `/webcron`,
+  `/smtp/check`, `/password_timeout`, `/webcron`,
   `/token_hash_router`, `/reactivate_email/{bounce_id}`,
   `/protected_download/{hash}`, `/confirm_purchase`,
   `/exports/preview/{hash}`, `/templates/preview/{hash}`
